@@ -1,0 +1,138 @@
+import logging
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.security import get_password_hash
+from app.models.department import Department
+from app.models.role import Role
+from app.models.user import User
+from app.schemas.user import UserCreate, UserFilterParams, UserUpdate
+
+logger = logging.getLogger(__name__)
+
+
+class UserService:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _get_roles(self, role_ids: list[int]) -> list[Role]:
+        if not role_ids:
+            return []
+        roles = list(self.db.scalars(select(Role).where(Role.id.in_(role_ids))).all())
+        if len(roles) != len(set(role_ids)):
+            raise ValueError("Some roles were not found")
+        return roles
+
+    def _get_department(self, department_id: int | None) -> Department | None:
+        if department_id is None:
+            return None
+        department = self.db.get(Department, department_id)
+        if department is None:
+            raise ValueError("Department not found")
+        return department
+
+    def create_user(self, payload: UserCreate) -> User:
+        existing = self.db.scalar(select(User).where(User.email == payload.email))
+        if existing:
+            raise ValueError("Email already exists")
+
+        user = User(
+            email=payload.email,
+            full_name=payload.full_name,
+            password_hash=get_password_hash(payload.password),
+            status=payload.status,
+            department_id=payload.department_id,
+        )
+        user.roles = self._get_roles(payload.role_ids)
+        self._get_department(payload.department_id)
+        self.db.add(user)
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            logger.warning("create_user integrity error: %s", exc)
+            raise ValueError("Email already exists") from exc
+        self.db.refresh(user)
+        return self.get_user(user.id)
+
+    def update_user(self, user_id: int, payload: UserUpdate) -> User:
+        user = self.db.get(User, user_id)
+        if user is None:
+            raise ValueError("User not found")
+
+        update_data = payload.model_dump(exclude_unset=True)
+
+        if "full_name" in update_data:
+            user.full_name = update_data["full_name"]
+        if "password" in update_data:
+            user.password_hash = get_password_hash(update_data["password"])
+        if "status" in update_data:
+            user.status = update_data["status"]
+        if "role_ids" in update_data:
+            user.roles = self._get_roles(update_data["role_ids"])
+        if "department_id" in update_data:
+            department_id = update_data["department_id"]
+            if department_id is not None:
+                self._get_department(department_id)
+            user.department_id = department_id
+
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            logger.warning("update_user integrity error: %s", exc)
+            raise ValueError("Email already exists or invalid department reference") from exc
+        self.db.refresh(user)
+        return self.get_user(user.id)
+
+    def delete_user(self, user_id: int) -> None:
+        user = self.db.get(User, user_id)
+        if user is None:
+            raise ValueError("User not found")
+        self.db.delete(user)
+        self.db.commit()
+
+    def get_user(self, user_id: int) -> User:
+        user = self.db.scalar(
+            select(User)
+            .options(selectinload(User.roles), selectinload(User.department))
+            .where(User.id == user_id)
+        )
+        if user is None:
+            raise ValueError("User not found")
+        return user
+
+    def list_users(self, params: UserFilterParams) -> tuple[list[User], int]:
+        stmt = select(User).options(selectinload(User.roles), selectinload(User.department))
+        count_stmt = select(func.count(User.id))
+
+        filters = []
+        if params.q:
+            q = f"%{params.q.strip()}%"
+            filters.append(or_(User.full_name.ilike(q), User.email.ilike(q)))
+        if params.department_id is not None:
+            filters.append(User.department_id == params.department_id)
+        if params.status is not None:
+            filters.append(User.status == params.status)
+        if params.role_id is not None:
+            stmt = stmt.join(User.roles)
+            count_stmt = count_stmt.join(User.roles)
+            filters.append(Role.id == params.role_id)
+
+        if filters:
+            stmt = stmt.where(*filters)
+            count_stmt = count_stmt.where(*filters)
+
+        if params.role_id is not None:
+            stmt = stmt.distinct(User.id)
+            count_stmt = count_stmt.with_only_columns(func.count(func.distinct(User.id)))
+
+        total = self.db.scalar(count_stmt) or 0
+        users = list(
+            self.db.scalars(
+                stmt.order_by(User.id.desc()).offset(params.offset).limit(params.limit)
+            ).all()
+        )
+        return users, total
