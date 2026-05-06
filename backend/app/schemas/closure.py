@@ -27,6 +27,7 @@ class LetterActionHistoryOut(BaseModel):
     created_at: datetime
     acted_by_full_name: str | None = None
     acted_by_email: str | None = None
+    acted_by_roles: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,7 +39,13 @@ def closure_history_out_from_letter(letter) -> "ClosureHistoryOut":
         row = LetterActionHistoryOut.model_validate(a)
         actor = getattr(a, "actor", None)
         if actor is not None:
-            row = row.model_copy(update={"acted_by_full_name": actor.full_name, "acted_by_email": actor.email})
+            row = row.model_copy(
+                update={
+                    "acted_by_full_name": actor.full_name,
+                    "acted_by_email": actor.email,
+                    "acted_by_roles": [r.name for r in getattr(actor, "roles", [])],
+                }
+            )
         items.append(row)
     return ClosureHistoryOut(
         letter_id=letter.id,

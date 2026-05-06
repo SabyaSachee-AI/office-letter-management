@@ -29,6 +29,12 @@ export function ActionHistoryList({
               <>
                 <span>·</span>
                 <span>{a.acted_by_full_name}</span>
+                {a.acted_by_roles?.length ? (
+                  <>
+                    <span>·</span>
+                    <span>{a.acted_by_roles.join(", ")}</span>
+                  </>
+                ) : null}
               </>
             ) : null}
           </div>

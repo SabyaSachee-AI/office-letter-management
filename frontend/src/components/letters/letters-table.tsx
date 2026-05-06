@@ -64,7 +64,11 @@ export function LettersTable({
     {
       id: "dept",
       header: "Department",
-      cell: (l) => <span className="text-sm">{l.department.name}</span>,
+      cell: (l) => (
+        <span className="text-sm">
+          {l.department ? `${l.department.name} (${l.department.code})` : "Pending Assignment"}
+        </span>
+      ),
     },
     {
       id: "priority",
@@ -89,6 +93,19 @@ export function LettersTable({
           variant="ghost"
           className="text-[#123f63] hover:bg-slate-100"
         />
+      ),
+    },
+    {
+      id: "view",
+      header: "View",
+      className: "w-20 text-right",
+      cell: (l) => (
+        <Link
+          href={`/dashboard/letters/${l.id}`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+        >
+          View
+        </Link>
       ),
     },
   ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { getApiErrorMessage } from "@/lib/api/error-message";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { createUser, listTeamLeaders, updateUser } from "@/lib/api/users";
 import type {
   DepartmentOut,
@@ -37,10 +38,9 @@ type UserFormDialogProps = {
 
 const defaultStatus = "active";
 
-const ROLE_APPROVAL_HEAD = new Set(["Approval Head-PEC", "Approval Head"]);
 const ROLE_TEAM_LEADER = new Set(["Team Leader"]);
 const ROLE_CONSULTANT = new Set(["Consultant"]);
-const ROLE_RECEIVING = new Set(["Receiving Officer"]);
+const ROLE_SYSTEM_ADMIN = new Set(["System Admin", "Admin"]);
 
 function roleById(roles: RoleOut[], id: number): RoleOut | undefined {
   return roles.find((r) => r.id === id);
@@ -67,9 +67,7 @@ export function UserFormDialog({
   const [status, setStatus] = useState(defaultStatus);
   const [departmentId, setDepartmentId] = useState("");
   const [roleId, setRoleId] = useState<string>("");
-  const [approvalDeptId, setApprovalDeptId] = useState("");
   const [teamDeptId, setTeamDeptId] = useState("");
-  const [receivingDeptId, setReceivingDeptId] = useState("");
   const [consultantType, setConsultantType] = useState("");
   const [reportingLeaderId, setReportingLeaderId] = useState("");
   const [teamLeaders, setTeamLeaders] = useState<UserOut[]>([]);
@@ -79,10 +77,23 @@ export function UserFormDialog({
   const selectedRole = roleId ? roleById(roles, Number(roleId)) : undefined;
   const selectedRoleName = selectedRole?.name ?? "";
 
-  const showApprovalDept = ROLE_APPROVAL_HEAD.has(selectedRoleName);
   const showTeamDept = ROLE_TEAM_LEADER.has(selectedRoleName);
-  const showReceivingDept = ROLE_RECEIVING.has(selectedRoleName);
   const showConsultantFields = ROLE_CONSULTANT.has(selectedRoleName);
+  const showPrimaryDepartmentField =
+    ROLE_TEAM_LEADER.has(selectedRoleName) ||
+    ROLE_CONSULTANT.has(selectedRoleName) ||
+    ROLE_SYSTEM_ADMIN.has(selectedRoleName);
+  const requiresPrimaryDepartment =
+    ROLE_TEAM_LEADER.has(selectedRoleName) || ROLE_CONSULTANT.has(selectedRoleName);
+
+  const departmentOptions = useMemo(() => {
+    const selectable = departments.filter((d) => !d.is_legacy);
+    if (mode === "edit" && user?.department?.is_legacy) {
+      const has = selectable.some((d) => d.id === user.department!.id);
+      if (!has && user.department) return [user.department, ...selectable];
+    }
+    return selectable;
+  }, [departments, mode, user?.department]);
 
   useEffect(() => {
     if (!open || !showConsultantFields) {
@@ -130,13 +141,7 @@ export function UserFormDialog({
       setDepartmentId(user.department ? String(user.department.id) : "");
       const primary = user.roles[0];
       setRoleId(primary ? String(primary.id) : "");
-      setApprovalDeptId(
-        user.approval_department ? String(user.approval_department.id) : ""
-      );
       setTeamDeptId(user.team_department ? String(user.team_department.id) : "");
-      setReceivingDeptId(
-        user.receiving_department ? String(user.receiving_department.id) : ""
-      );
       setConsultantType(user.consultant_type ?? "");
       setReportingLeaderId(
         user.reporting_team_leader_id ? String(user.reporting_team_leader_id) : ""
@@ -152,9 +157,7 @@ export function UserFormDialog({
       setStatus(defaultStatus);
       setDepartmentId("");
       setRoleId("");
-      setApprovalDeptId("");
       setTeamDeptId("");
-      setReceivingDeptId("");
       setConsultantType("");
       setReportingLeaderId("");
     }
@@ -169,10 +172,6 @@ export function UserFormDialog({
       return;
     }
     if (mode === "create") {
-      if (!departmentId) {
-        setError("Department is required.");
-        return;
-      }
       if (!nid.trim()) {
         setError("NID is required.");
         return;
@@ -190,16 +189,8 @@ export function UserFormDialog({
         return;
       }
     }
-    if (showApprovalDept && !approvalDeptId) {
-      setError("Approval department is required for this role.");
-      return;
-    }
     if (showTeamDept && !teamDeptId) {
       setError("Team department is required for this role.");
-      return;
-    }
-    if (showReceivingDept && !receivingDeptId) {
-      setError("Receiving department is required for this role.");
       return;
     }
     if (showConsultantFields) {
@@ -214,7 +205,17 @@ export function UserFormDialog({
     }
 
     const rid = Number(roleId);
-    const dept = departmentId === "" ? null : Number(departmentId);
+    const deptNum =
+      showPrimaryDepartmentField && departmentId.trim() !== ""
+        ? Number(departmentId)
+        : null;
+    if (
+      requiresPrimaryDepartment &&
+      (deptNum == null || !Number.isFinite(deptNum))
+    ) {
+      setError("Department is required for Team Leader and Consultant roles.");
+      return;
+    }
 
     if (mode === "edit" && user && password.trim().length > 0) {
       if (password.length < 8) {
@@ -240,34 +241,27 @@ export function UserFormDialog({
           employee_id: employeeId.trim() || null,
           designation: designation.trim() || null,
           role_ids: [rid],
-          department_id: dept!,
+          department_id: deptNum,
           status,
-          approval_department_id: showApprovalDept
-            ? Number(approvalDeptId)
-            : null,
+          approval_department_id: null,
           team_department_id: showTeamDept ? Number(teamDeptId) : null,
-          receiving_department_id: showReceivingDept
-            ? Number(receivingDeptId)
-            : null,
+          receiving_department_id: null,
           consultant_type: showConsultantFields ? consultantType.trim() : null,
           reporting_team_leader_id: showConsultantFields
             ? Number(reportingLeaderId)
             : null,
         });
+        toastSuccess("User created successfully.");
       } else if (user) {
         const payload: UserUpdatePayload = {
           username: username.trim() || undefined,
           full_name: fullName.trim(),
           role_ids: [rid],
-          department_id: dept,
+          department_id: deptNum,
           status,
-          approval_department_id: showApprovalDept
-            ? Number(approvalDeptId)
-            : null,
+          approval_department_id: null,
           team_department_id: showTeamDept ? Number(teamDeptId) : null,
-          receiving_department_id: showReceivingDept
-            ? Number(receivingDeptId)
-            : null,
+          receiving_department_id: null,
           consultant_type: showConsultantFields ? consultantType.trim() : null,
           reporting_team_leader_id: showConsultantFields
             ? Number(reportingLeaderId)
@@ -281,11 +275,14 @@ export function UserFormDialog({
           payload.password = password;
         }
         await updateUser(user.id, payload);
+        toastSuccess("User updated successfully.");
       }
       onOpenChange(false);
       onSuccess();
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      const m = getApiErrorMessage(err);
+      setError(m);
+      toastError(m);
     } finally {
       setPending(false);
     }
@@ -307,7 +304,7 @@ export function UserFormDialog({
             </DialogTitle>
             <DialogDescription>
               {mode === "create"
-                ? "Required: email, username, NID, phone, department, role, password."
+                ? "Required: email, username, NID, phone, role, password. Department is required for Team Leader and Consultant only."
                 : "Update account details and workflow mapping."}
             </DialogDescription>
           </DialogHeader>
@@ -450,25 +447,30 @@ export function UserFormDialog({
                 />
               </FormField>
 
-              <div className="grid gap-2">
-                <Label htmlFor="dept">Department</Label>
-                <select
-                  id="dept"
-                  className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                  value={departmentId}
-                  onChange={(e) => setDepartmentId(e.target.value)}
-                  required={mode === "create"}
-                >
-                  <option value="">
-                    {mode === "create" ? "Select department" : "None"}
-                  </option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name} ({d.code})
+              {showPrimaryDepartmentField ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="dept">Department</Label>
+                  <select
+                    id="dept"
+                    title="Primary department"
+                    className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                    value={departmentId}
+                    onChange={(e) => setDepartmentId(e.target.value)}
+                    required={mode === "create" && requiresPrimaryDepartment}
+                  >
+                    <option value="">
+                      {requiresPrimaryDepartment && mode === "create"
+                        ? "Select department"
+                        : "None (optional)"}
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {departmentOptions.map((d) => (
+                      <option key={d.id} value={String(d.id)}>
+                        {d.name} ({d.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <div className="grid gap-2">
                 <Label htmlFor="status">Status</Label>
@@ -508,58 +510,19 @@ export function UserFormDialog({
                 </select>
               </div>
 
-              {showApprovalDept ? (
-                <div className="grid gap-2">
-                  <Label htmlFor="appr_dept">Approval department</Label>
-                  <select
-                    id="appr_dept"
-                    className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                    value={approvalDeptId}
-                    onChange={(e) => setApprovalDeptId(e.target.value)}
-                    required={mode === "create"}
-                  >
-                    <option value="">Select…</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={String(d.id)}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
               {showTeamDept ? (
                 <div className="grid gap-2">
                   <Label htmlFor="team_dept">Team department</Label>
                   <select
                     id="team_dept"
+                    title="Team department"
                     className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                     value={teamDeptId}
                     onChange={(e) => setTeamDeptId(e.target.value)}
                     required={mode === "create"}
                   >
                     <option value="">Select…</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={String(d.id)}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
-              {showReceivingDept ? (
-                <div className="grid gap-2">
-                  <Label htmlFor="recv_dept">Receiving department</Label>
-                  <select
-                    id="recv_dept"
-                    className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                    value={receivingDeptId}
-                    onChange={(e) => setReceivingDeptId(e.target.value)}
-                    required={mode === "create"}
-                  >
-                    <option value="">Select…</option>
-                    {departments.map((d) => (
+                    {departmentOptions.map((d) => (
                       <option key={d.id} value={String(d.id)}>
                         {d.name}
                       </option>

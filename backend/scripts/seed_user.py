@@ -31,9 +31,10 @@ ROLE_SEEDS = [
 ]
 
 DEPARTMENT_SEEDS = [
-    ("General Administration", "GA"),
-    ("Human Resources", "HR"),
-    ("Finance", "FIN"),
+    ("Technical", "TECH"),
+    ("Functional", "FUNC"),
+    ("Administration", "ADM"),
+    ("Others", "OTH"),
 ]
 
 

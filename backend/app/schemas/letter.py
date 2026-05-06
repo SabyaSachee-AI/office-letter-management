@@ -15,7 +15,7 @@ class LetterOut(BaseModel):
     pdf_path: str
     priority: LetterPriority
     status: LetterStatus
-    department: DepartmentOut
+    department: DepartmentOut | None = None
     created_by: int
     created_at: datetime
     closed_at: datetime | None = None
@@ -29,3 +29,10 @@ class LetterListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class LetterAdminUpdateIn(BaseModel):
+    memo_no: str | None = None
+    subject: str
+    received_from: str
+    priority: LetterPriority

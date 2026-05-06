@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -59,10 +59,15 @@ class ConsultantService:
         offset: int,
         *,
         q: str | None = None,
+        from_office: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         work_status: AssignmentWorkStatus | None = None,
     ) -> tuple[list[tuple[LetterAssignment, Letter]], int]:
-        stmt = select(LetterAssignment, Letter).join(
-            Letter, Letter.id == LetterAssignment.letter_id
+        stmt = (
+            select(LetterAssignment, Letter)
+            .join(Letter, Letter.id == LetterAssignment.letter_id)
+            .options(selectinload(Letter.department))
         )
         count_stmt = (
             select(func.count(LetterAssignment.id))
@@ -80,9 +85,16 @@ class ConsultantService:
                     Letter.serial_no.ilike(qv),
                     Letter.memo_no.ilike(qv),
                     Letter.subject.ilike(qv),
-                    Letter.received_from.ilike(qv),
                 )
             )
+        if from_office:
+            filters.append(Letter.received_from.ilike(f"%{from_office.strip()}%"))
+        if date_from is not None:
+            start = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+            filters.append(Letter.created_at >= start)
+        if date_to is not None:
+            end = datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, 999999, tzinfo=timezone.utc)
+            filters.append(Letter.created_at <= end)
         if work_status is not None:
             filters.append(LetterAssignment.work_status == work_status)
         stmt = stmt.where(*filters).order_by(LetterAssignment.deadline_at.asc())
@@ -181,8 +193,6 @@ class ConsultantService:
             raise ValueError("Target consultant not found")
         if target.id == consultant_user.id:
             raise ValueError("Cannot transfer to same consultant")
-        if target.department_id != consultant_user.department_id:
-            raise ValueError("Target consultant must be in same department")
         if not self._has_role(target, Roles.CONSULTANT):
             raise ValueError("Target user is not a consultant")
 

@@ -46,6 +46,7 @@ class PermissionService:
         if not role_ids:
             return False
 
+        legacy = self._legacy_allowed_screens(user)
         perm_count = self.db.scalar(
             select(func.count())
             .select_from(RoleScreenPermission)
@@ -54,8 +55,8 @@ class PermissionService:
 
         if perm_count > 0:
             granted = self._db_granted_screens_for_roles(role_ids)
-            return screen_key in granted
-        return self._legacy_can_access(user, screen_key)
+            return screen_key in granted or screen_key in legacy
+        return screen_key in legacy
 
     def allowed_screens_for_user(self, user: User) -> list[str]:
         if is_system_admin(user):
@@ -63,14 +64,15 @@ class PermissionService:
         role_ids = [r.id for r in user.roles]
         if not role_ids:
             return []
+        legacy = self._legacy_allowed_screens(user)
         perm_count = self.db.scalar(
             select(func.count())
             .select_from(RoleScreenPermission)
             .where(RoleScreenPermission.role_id.in_(role_ids))
         ) or 0
         if perm_count > 0:
-            return sorted(self._db_granted_screens_for_roles(role_ids))
-        return sorted(self._legacy_allowed_screens(user))
+            return sorted(legacy | self._db_granted_screens_for_roles(role_ids))
+        return sorted(legacy)
 
     def get_matrix(self) -> dict[int, set[str]]:
         rows = self.db.scalars(select(RoleScreenPermission)).all()

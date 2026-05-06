@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.models.letter import AssignmentWorkStatus
 from app.schemas.assignment import AssignmentOut
+from app.schemas.department import DepartmentOut
 
 
 class ConsultantAssignedLetterOut(BaseModel):
@@ -14,6 +15,7 @@ class ConsultantAssignedLetterOut(BaseModel):
     subject: str
     received_from: str
     deadline_at: datetime
+    letter_department: DepartmentOut | None = None
 
 
 class ConsultantAssignedLetterListOut(BaseModel):

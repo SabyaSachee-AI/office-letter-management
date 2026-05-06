@@ -7,6 +7,8 @@ function buildParams(p: ReportQueryParams): Record<string, string | number> {
   if (p.date_to) out.date_to = p.date_to;
   if (p.department_id != null) out.department_id = p.department_id;
   if (p.status) out.status = p.status;
+  if (p.q) out.q = p.q;
+  if (p.from_office) out.from_office = p.from_office;
   return out;
 }
 

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/error-message";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { deleteUser } from "@/lib/api/users";
 import type { UserOut } from "@/types/user";
 
@@ -37,11 +38,14 @@ export function UserDeleteDialog({
     setError(null);
     setPending(true);
     try {
-      await deleteUser(user.id);
+      const result = await deleteUser(user.id);
+      toastSuccess(result.message);
       onOpenChange(false);
       onDeleted();
     } catch (e) {
-      setError(getApiErrorMessage(e));
+      const m = getApiErrorMessage(e);
+      setError(m);
+      toastError(m);
     } finally {
       setPending(false);
     }

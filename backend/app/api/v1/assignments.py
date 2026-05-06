@@ -49,7 +49,7 @@ def assign_consultant(
             detail={"consultant_id": payload.consultant_id, "assignment_id": assignment.id},
         )
         db.commit()
-        return AssignmentOut.model_validate(assignment)
+        return service.enrich_assignments([assignment])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -78,7 +78,7 @@ def reassign_consultant(
             detail={"consultant_id": payload.consultant_id, "assignment_id": assignment.id},
         )
         db.commit()
-        return AssignmentOut.model_validate(assignment)
+        return service.enrich_assignments([assignment])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -127,7 +127,7 @@ def assignment_tracking(
             letter_id=letter.id,
             serial_no=letter.serial_no,
             subject=letter.subject,
-            assignments=[AssignmentOut.model_validate(item) for item in assignments],
+            assignments=service.enrich_assignments(assignments),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

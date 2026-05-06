@@ -9,6 +9,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.closure import router as closure_router
 from app.api.v1.consultant import router as consultant_router
 from app.api.v1.letters import router as letters_router
+from app.api.v1.notices import router as notices_router
 from app.api.v1.users import router as users_router
 from app.api.v1.workflow import router as workflow_router
 
@@ -24,3 +25,4 @@ api_router.include_router(consultant_router)
 api_router.include_router(closure_router)
 api_router.include_router(activity_router)
 api_router.include_router(reports_router)
+api_router.include_router(notices_router)

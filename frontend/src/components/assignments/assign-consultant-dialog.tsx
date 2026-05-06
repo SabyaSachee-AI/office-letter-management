@@ -15,8 +15,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api/error-message";
+import { toastSuccess } from "@/lib/toast";
 import { assignConsultant, reassignConsultant } from "@/lib/api/assignments";
-import { listConsultantsForAssignment } from "@/lib/api/users";
+import { listAssignableWorkflowUsers } from "@/lib/api/users";
 import type { UserOut } from "@/types/user";
 
 type AssignConsultantDialogProps = {
@@ -58,7 +59,7 @@ export function AssignConsultantDialog({
     let cancelled = false;
     (async () => {
       try {
-        const items = await listConsultantsForAssignment(departmentId);
+        const items = await listAssignableWorkflowUsers();
         if (!cancelled) setConsultants(items);
       } catch {
         if (!cancelled) setConsultants([]);
@@ -103,6 +104,7 @@ export function AssignConsultantDialog({
           comment: comment.trim() || "—",
         });
       }
+      toastSuccess(mode === "assign" ? "Consultant assigned successfully." : "Consultant reassigned successfully.");
       onOpenChange(false);
       onSuccess();
     } catch (err) {
@@ -118,10 +120,10 @@ export function AssignConsultantDialog({
         <form onSubmit={(e) => void handleSubmit(e)}>
           <DialogHeader>
             <DialogTitle>
-              {mode === "assign" ? "Assign consultant" : "Reassign consultant"}
+              {mode === "assign" ? "Assign / Forward letter" : "Reassign / Forward letter"}
             </DialogTitle>
             <DialogDescription>
-              Choose an active consultant in this letter&apos;s department.
+              Choose any active Consultant or Team Leader from any department.
             </DialogDescription>
           </DialogHeader>
 
@@ -133,9 +135,10 @@ export function AssignConsultantDialog({
             ) : null}
 
             <div className="grid gap-2">
-              <Label htmlFor="consultant">Consultant</Label>
+              <Label htmlFor="consultant">Assign To</Label>
               <select
                 id="consultant"
+                title="Assign To"
                 className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                 value={consultantId}
                 onChange={(e) => setConsultantId(e.target.value)}
@@ -144,7 +147,7 @@ export function AssignConsultantDialog({
                 <option value="">Select…</option>
                 {consultants.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
+                    {u.full_name} — {u.roles.map((r) => r.name).join(", ")} — {u.department?.name ?? "No Department"} — {u.email}
                   </option>
                 ))}
               </select>

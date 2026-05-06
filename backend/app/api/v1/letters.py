@@ -1,4 +1,5 @@
 import mimetypes
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +14,7 @@ from app.rbac.guards import require_any_screen, require_roles, require_screen
 from app.rbac.roles import Roles
 from app.rbac.screens import ScreenKey
 from app.schemas.closure import ClosureHistoryOut, closure_history_out_from_letter
-from app.schemas.letter import LetterListResponse, LetterOut
+from app.schemas.letter import LetterAdminUpdateIn, LetterListResponse, LetterOut
 from app.core.config import settings
 from app.core.letter_access import is_admin
 from app.services.activity_service import ActivityService
@@ -53,7 +54,7 @@ def create_letter(
     current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER))],
     subject: str = Form(..., min_length=1, max_length=255),
     received_from: str = Form(..., min_length=1, max_length=255),
-    department_id: int = Form(...),
+    department_id: int | None = Form(default=None),
     priority: LetterPriority = Form(default=LetterPriority.NORMAL),
     memo_no: str | None = Form(default=None, max_length=160),
     file: UploadFile = File(...),
@@ -104,7 +105,12 @@ def list_letters(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: LetterStatus | None = Query(default=None),
+    priority: LetterPriority | None = Query(default=None),
     department_id: int | None = Query(default=None),
+    unassigned_only: bool = Query(default=False),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    from_office: str | None = Query(default=None, max_length=255),
     q: str | None = Query(default=None, max_length=200),
 ) -> LetterListResponse:
     if department_id is not None:
@@ -125,7 +131,12 @@ def list_letters(
         limit=limit,
         offset=offset,
         status=status,
+        priority=priority,
         department_id=department_id,
+        unassigned_only=unassigned_only,
+        date_from=date_from,
+        date_to=date_to,
+        from_office=(from_office.strip() or None) if from_office is not None else None,
         q=(q.strip() or None) if q is not None else None,
     )
     return LetterListResponse(
@@ -255,3 +266,65 @@ def get_letter(
         return LetterOut.model_validate(letter)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put(
+    "/{letter_id}",
+    response_model=LetterOut,
+    dependencies=[Depends(require_screen(ScreenKey.LETTERS_CREATE))],
+)
+def update_letter_admin(
+    letter_id: int,
+    payload: LetterAdminUpdateIn,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
+) -> LetterOut:
+    service = LetterService(db)
+    letter = service.get_letter(letter_id)
+    if letter.department_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assigned workflow records cannot be modified.",
+        )
+    letter.memo_no = (payload.memo_no or "").strip() or None
+    letter.subject = payload.subject.strip()
+    letter.received_from = payload.received_from.strip()
+    letter.priority = payload.priority
+    ActivityService(db).record_audit(
+        actor_user_id=current_user.id,
+        action="letter_updated",
+        resource_type="letter",
+        resource_id=letter.id,
+        detail={"serial_no": letter.serial_no},
+    )
+    db.commit()
+    db.refresh(letter)
+    return LetterOut.model_validate(letter)
+
+
+@router.delete(
+    "/{letter_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_screen(ScreenKey.LETTERS_CREATE))],
+)
+def delete_letter_admin(
+    letter_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
+) -> None:
+    service = LetterService(db)
+    letter = service.get_letter(letter_id)
+    if letter.department_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assigned workflow records cannot be modified.",
+        )
+    ActivityService(db).record_audit(
+        actor_user_id=current_user.id,
+        action="letter_deleted",
+        resource_type="letter",
+        resource_id=letter.id,
+        detail={"serial_no": letter.serial_no},
+    )
+    db.delete(letter)
+    db.commit()

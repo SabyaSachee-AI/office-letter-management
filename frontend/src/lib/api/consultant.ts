@@ -6,11 +6,28 @@ import type {
 
 export async function listMyAssignments(
   limit = 20,
-  offset = 0
+  offset = 0,
+  filters?: {
+    q?: string;
+    from_office?: string;
+    date_from?: string;
+    date_to?: string;
+    work_status?: "assigned" | "in_progress" | "resolved" | "transferred";
+  }
 ): Promise<ConsultantAssignmentListResponse> {
   const { data } = await api.get<ConsultantAssignmentListResponse>(
     "/api/v1/consultant/assignments",
-    { params: { limit, offset } }
+    {
+      params: {
+        limit,
+        offset,
+        q: filters?.q?.trim() || undefined,
+        from_office: filters?.from_office?.trim() || undefined,
+        date_from: filters?.date_from || undefined,
+        date_to: filters?.date_to || undefined,
+        work_status: filters?.work_status || undefined,
+      },
+    }
   );
   return data;
 }

@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { ErrorBanner } from "@/components/data/error-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { PaginationBar } from "@/components/data/pagination-bar";
-import { FilterSelect } from "@/components/forms/filter-select";
-import { Input } from "@/components/ui/input";
+import { LetterFilterBar } from "@/components/letters/letter-filter-bar";
 import { LettersTable } from "@/components/letters/letters-table";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/auth-context";
 import { expandAllowedScreensKeys } from "@/config/navigation";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isCentralLetterRole } from "@/lib/auth/roles";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { fetchDepartments } from "@/lib/api/users";
 import { listLetters } from "@/lib/api/letters";
@@ -23,6 +23,7 @@ import type { DepartmentOut } from "@/types/user";
 const PAGE = 20;
 
 const STATUS_OPTS = [
+  { value: "pending_assignment", label: "Pending Assignment" },
   { value: "received", label: "Received" },
   { value: "under_review", label: "Under review" },
   { value: "returned_for_correction", label: "Returned" },
@@ -32,13 +33,22 @@ const STATUS_OPTS = [
 ];
 
 export function LettersListPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const admin = isAdmin(user);
+  const central = isCentralLetterRole(user);
   const canReceiveLetter = expandAllowedScreensKeys(user?.allowed_screens ?? []).has(
     "letters:create"
   );
   const [status, setStatus] = useState("");
+  const isPendingOnly = status === "pending_assignment";
+  const statusValue = isPendingOnly ? undefined : status || undefined;
   const [searchQ, setSearchQ] = useState("");
+  const [fromOffice, setFromOffice] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
   const [departments, setDepartments] = useState<DepartmentOut[]>([]);
   const [page, setPage] = useState(0);
@@ -47,27 +57,48 @@ export function LettersListPage() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setSearchQ(searchParams.get("q") ?? "");
+    setFromOffice(searchParams.get("from_office") ?? "");
+    setStatus(searchParams.get("status") ?? "");
+    setDateFrom(searchParams.get("date_from") ?? "");
+    setDateTo(searchParams.get("date_to") ?? "");
+    setDeptFilter(searchParams.get("department_id") ?? "");
+    setPage(Number(searchParams.get("page") ?? "0") || 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const departmentId = admin
     ? deptFilter
       ? Number(deptFilter)
       : undefined
-    : user?.department?.id ?? undefined;
+    : central
+      ? deptFilter
+        ? Number(deptFilter)
+        : undefined
+      : user?.department?.id ?? undefined;
 
   const load = useCallback(async () => {
     setLoading(true);
     setListError(null);
     try {
       const [deptRows, res] = await Promise.all([
-        admin ? fetchDepartments() : Promise.resolve([] as DepartmentOut[]),
+        admin || central
+          ? fetchDepartments({ excludeLegacy: true })
+          : Promise.resolve([] as DepartmentOut[]),
         listLetters({
           limit: PAGE,
           offset: page * PAGE,
-          status: status || undefined,
+          status: statusValue,
           department_id: departmentId,
+          unassigned_only: isPendingOnly,
+          from_office: fromOffice || undefined,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
           q: searchQ.trim() || undefined,
         }),
       ]);
-      if (admin) setDepartments(deptRows);
+      if (admin || central) setDepartments(deptRows);
       setItems(res.items);
       setTotal(res.total);
     } catch (e) {
@@ -77,7 +108,18 @@ export function LettersListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, status, departmentId, admin, searchQ]);
+  }, [
+    page,
+    statusValue,
+    isPendingOnly,
+    fromOffice,
+    dateFrom,
+    dateTo,
+    departmentId,
+    admin,
+    central,
+    searchQ,
+  ]);
 
   useEffect(() => {
     void load();
@@ -87,7 +129,7 @@ export function LettersListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Letters"
-        description="Browse registered letters. Filters respect your department unless you are an administrator."
+        description="Browse registered letters. Receiving and Approval roles see all incoming letters; Team Leaders are scoped to their department."
         actions={
           canReceiveLetter ? (
             <Link
@@ -102,54 +144,47 @@ export function LettersListPage() {
 
       {listError ? <ErrorBanner message={listError} /> : null}
 
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200/80 bg-slate-50/90 p-3 shadow-sm sm:p-4">
-        <div className="grid min-w-[min(100%,16rem)] flex-1 gap-1.5 sm:min-w-[12rem]">
-          <span className="text-muted-foreground text-xs font-medium">Search</span>
-          <Input
-            aria-label="Search letters"
-            placeholder="Serial, memo no., subject…"
-            value={searchQ}
-            onChange={(e) => {
-              setSearchQ(e.target.value);
-              setPage(0);
-            }}
-            className="h-9"
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <span className="text-muted-foreground text-xs font-medium">Status</span>
-          <FilterSelect
-            aria-label="Status"
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(0);
-            }}
-            options={STATUS_OPTS}
-            placeholderLabel="Any status"
-          />
-        </div>
-        {admin ? (
-          <div className="grid gap-1.5">
-            <span className="text-muted-foreground text-xs font-medium">
-              Department
-            </span>
-            <FilterSelect
-              aria-label="Department"
-              value={deptFilter}
-              onChange={(e) => {
-                setDeptFilter(e.target.value);
-                setPage(0);
-              }}
-              options={departments.map((d) => ({
-                value: String(d.id),
-                label: d.name,
-              }))}
-              placeholderLabel="All departments"
-            />
-          </div>
-        ) : null}
-      </div>
+      <LetterFilterBar
+        search={searchQ}
+        fromOffice={fromOffice}
+        status={status}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        department={deptFilter}
+        onSearchChange={setSearchQ}
+        onFromOfficeChange={setFromOffice}
+        onStatusChange={setStatus}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onDepartmentChange={setDeptFilter}
+        onApply={() => {
+          setPage(0);
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("q", searchQ);
+          next.set("from_office", fromOffice);
+          next.set("status", status);
+          next.set("date_from", dateFrom);
+          next.set("date_to", dateTo);
+          if (deptFilter) next.set("department_id", deptFilter);
+          else next.delete("department_id");
+          next.set("page", "0");
+          router.replace(`${pathname}?${next.toString()}`);
+          void load();
+        }}
+        onReset={() => {
+          setSearchQ("");
+          setFromOffice("");
+          setStatus("");
+          setDateFrom("");
+          setDateTo("");
+          setDeptFilter("");
+          setPage(0);
+          router.replace(pathname);
+        }}
+        statusOptions={STATUS_OPTS}
+        showDepartment={admin || central}
+        departmentOptions={departments.map((d) => ({ value: String(d.id), label: d.name }))}
+      />
 
       <LettersTable letters={items} loading={loading} />
 
@@ -157,7 +192,12 @@ export function LettersListPage() {
         page={page}
         pageSize={PAGE}
         total={total}
-        onPageChange={setPage}
+        onPageChange={(nextPage) => {
+          setPage(nextPage);
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("page", String(nextPage));
+          router.replace(`${pathname}?${next.toString()}`);
+        }}
       />
     </div>
   );

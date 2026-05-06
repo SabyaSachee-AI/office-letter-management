@@ -22,7 +22,7 @@ import {
 } from "@/lib/api/workflow";
 import type { DepartmentOut } from "@/types/user";
 
-export type WorkflowActionMode = "approve" | "reject" | "return" | "route";
+export type WorkflowActionMode = "forward" | "reject" | "return" | "route";
 
 type WorkflowActionDialogProps = {
   letterId: number;
@@ -43,11 +43,12 @@ export function WorkflowActionDialog({
 }: WorkflowActionDialogProps) {
   const [comment, setComment] = useState("");
   const [targetDept, setTargetDept] = useState("");
+  const [priority, setPriority] = useState("normal");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const titles: Record<WorkflowActionMode, string> = {
-    approve: "Approve letter",
+    forward: "Forward letter",
     reject: "Reject letter",
     return: "Return for correction",
     route: "Route to department",
@@ -59,13 +60,20 @@ export function WorkflowActionDialog({
       setError("Comment must be at least 2 characters.");
       return;
     }
-    if (mode === "route" && !targetDept) {
+    if ((mode === "route" || mode === "forward") && !targetDept) {
       setError("Select a target department.");
       return;
     }
     setPending(true);
     try {
-      if (mode === "approve") await approveLetter(letterId, comment.trim());
+      if (mode === "forward") {
+        await approveLetter(
+          letterId,
+          comment.trim(),
+          Number(targetDept),
+          priority as "low" | "normal" | "high" | "urgent"
+        );
+      }
       else if (mode === "reject") await rejectLetter(letterId, comment.trim());
       else if (mode === "return") await returnLetter(letterId, comment.trim());
       else
@@ -77,6 +85,7 @@ export function WorkflowActionDialog({
       onOpenChange(false);
       setComment("");
       setTargetDept("");
+      setPriority("normal");
       onSuccess();
     } catch (e) {
       setError(getApiErrorMessage(e));
@@ -91,8 +100,8 @@ export function WorkflowActionDialog({
         <DialogHeader>
           <DialogTitle>{titles[mode]}</DialogTitle>
           <DialogDescription>
-            {mode === "route"
-              ? "Move the letter to another department with a short justification."
+            {mode === "route" || mode === "forward"
+              ? "Select destination department and add a short note."
               : "This action is recorded on the letter timeline."}
           </DialogDescription>
         </DialogHeader>
@@ -102,22 +111,40 @@ export function WorkflowActionDialog({
               {error}
             </p>
           ) : null}
-          {mode === "route" ? (
-            <div className="grid gap-2">
-              <Label htmlFor="target-dept">Target department</Label>
-              <select
-                id="target-dept"
-                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                value={targetDept}
-                onChange={(e) => setTargetDept(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={String(d.id)}>
-                    {d.name} ({d.code})
-                  </option>
-                ))}
-              </select>
+          {mode === "route" || mode === "forward" ? (
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="target-dept">Target department</Label>
+                <select
+                  id="target-dept"
+                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                  value={targetDept}
+                  onChange={(e) => setTargetDept(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={String(d.id)}>
+                      {d.name} ({d.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {mode === "forward" ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <select
+                    id="priority"
+                    className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+              ) : null}
             </div>
           ) : null}
           <FormField id="wf-comment" label="Comment" error={null}>

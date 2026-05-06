@@ -15,29 +15,23 @@ import {
 } from "@/lib/attachments";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { createLetter } from "@/lib/api/letters";
-import type { DepartmentOut } from "@/types/user";
+import { toastSuccess } from "@/lib/toast";
 
 const ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,application/pdf,image/*";
 
-type LetterReceiveFormProps = {
-  departments: DepartmentOut[];
-};
-
-export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
+export function LetterReceiveForm() {
   const router = useRouter();
   const [subject, setSubject] = useState("");
   const [memoNo, setMemoNo] = useState("");
   const [receivedFrom, setReceivedFrom] = useState("");
-  const [departmentId, setDepartmentId] = useState<string>(
-    departments[0] ? String(departments[0].id) : ""
-  );
   const [priority, setPriority] = useState("normal");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!file) {
@@ -65,6 +59,7 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     if (!file) {
       setError("Please choose a file (PDF, image, or Word document).");
       return;
@@ -74,13 +69,17 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
     const memo = memoNo.trim();
     if (memo) fd.append("memo_no", memo);
     fd.append("received_from", receivedFrom.trim());
-    fd.append("department_id", departmentId);
     fd.append("priority", priority);
     fd.append("file", file);
     setPending(true);
     try {
       const letter = await createLetter(fd);
-      router.push(`/dashboard/letters/${letter.id}`);
+      toastSuccess(`Letter received successfully. Serial: ${letter.serial_no}`);
+      setSuccess(`Letter received successfully. Serial No: ${letter.serial_no}`);
+      router.refresh();
+      setTimeout(() => {
+        router.push(`/dashboard/letters/${letter.id}`);
+      }, 700);
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -104,6 +103,11 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
           {error ? (
             <p className="text-destructive text-sm" role="alert">
               {error}
+            </p>
+          ) : null}
+          {success ? (
+            <p className="text-sm text-emerald-700" role="status">
+              {success}
             </p>
           ) : null}
           <FormField id="subject" label="Subject" error={null}>
@@ -139,25 +143,10 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
             />
           </FormField>
           <div className="grid gap-2">
-            <Label htmlFor="department_id">Department</Label>
-            <select
-              id="department_id"
-              className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              required
-            >
-              {departments.map((d) => (
-                <option key={d.id} value={String(d.id)}>
-                  {d.name} ({d.code})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="priority">Priority</Label>
+            <Label htmlFor="priority">Priority (optional)</Label>
             <select
               id="priority"
+              title="Letter priority"
               className="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 w-full rounded-md border px-3 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}

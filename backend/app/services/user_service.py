@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import get_password_hash
 from app.models.department import Department
+from app.models.letter import AssignmentSolutionFile, Letter, LetterAction, LetterAssignment
+from app.models.notice import Notice
 from app.models.role import Role
 from app.models.user import User, user_roles
 from app.models.user import UserStatus
@@ -38,6 +40,61 @@ class UserService:
     def _user_has_consultant_role(self, roles: list[Role]) -> bool:
         names = {r.name for r in roles}
         return bool(names & expand_role_names(Roles.CONSULTANT))
+
+    @staticmethod
+    def _role_names_from_roles(roles: list[Role]) -> set[str]:
+        return {r.name for r in roles}
+
+    def _needs_primary_department(self, names: set[str]) -> bool:
+        return bool(
+            (names & expand_role_names(Roles.TEAM_LEADER))
+            | (names & expand_role_names(Roles.CONSULTANT))
+        )
+
+    def _is_team_leader_role(self, names: set[str]) -> bool:
+        return bool(names & expand_role_names(Roles.TEAM_LEADER))
+
+    def sync_profile_department_fields(self, user: User) -> None:
+        """Central registry / approval roles do not use workflow department fields."""
+        names = self._role_names_from_roles(list(user.roles))
+        if self._needs_primary_department(names):
+            if user.department_id is None:
+                raise ValueError("Department is required for Team Leader and Consultant roles")
+        else:
+            user.department_id = None
+        user.approval_department_id = None
+        user.receiving_department_id = None
+        if not self._is_team_leader_role(names):
+            user.team_department_id = None
+
+    def _user_has_workflow_history(self, user_id: int) -> bool:
+        stmt_action = select(func.count(LetterAction.id)).where(LetterAction.acted_by == user_id)
+        stmt_assign_c = select(func.count(LetterAssignment.id)).where(
+            LetterAssignment.consultant_id == user_id
+        )
+        stmt_assign_a = select(func.count(LetterAssignment.id)).where(
+            LetterAssignment.assigned_by == user_id
+        )
+        stmt_letter_cb = select(func.count(Letter.id)).where(Letter.created_by == user_id)
+        stmt_letter_cl = select(func.count(Letter.id)).where(Letter.closed_by == user_id)
+        stmt_notice = select(func.count(Notice.id)).where(Notice.created_by == user_id)
+        stmt_upload = select(func.count(AssignmentSolutionFile.id)).where(
+            AssignmentSolutionFile.uploaded_by == user_id
+        )
+        stmt_reporting = select(func.count(User.id)).where(User.reporting_team_leader_id == user_id)
+        for stmt in (
+            stmt_action,
+            stmt_assign_c,
+            stmt_assign_a,
+            stmt_letter_cb,
+            stmt_letter_cl,
+            stmt_notice,
+            stmt_upload,
+            stmt_reporting,
+        ):
+            if (self.db.scalar(stmt) or 0) > 0:
+                return True
+        return False
 
     def _validate_consultant_reporting_leader(
         self,
@@ -78,6 +135,18 @@ class UserService:
         if self.db.scalar(select(User).where(User.username == uname)):
             raise ValueError("Username already exists")
 
+        roles_list = self._get_roles(payload.role_ids)
+        names = self._role_names_from_roles(roles_list)
+        need_dept = self._needs_primary_department(names)
+        dept_id = payload.department_id if need_dept else None
+        if need_dept and dept_id is None:
+            raise ValueError("Department is required for Team Leader and Consultant roles")
+        if dept_id is not None:
+            self._get_department(dept_id)
+        team_dept = payload.team_department_id if self._is_team_leader_role(names) else None
+        if team_dept is not None:
+            self._get_department(team_dept)
+
         user = User(
             email=payload.email,
             username=uname,
@@ -88,32 +157,26 @@ class UserService:
             designation=payload.designation.strip() if payload.designation else None,
             password_hash=get_password_hash(payload.password),
             status=payload.status,
-            department_id=payload.department_id,
-            approval_department_id=payload.approval_department_id,
-            team_department_id=payload.team_department_id,
-            receiving_department_id=payload.receiving_department_id,
+            department_id=dept_id,
+            approval_department_id=None,
+            team_department_id=team_dept,
+            receiving_department_id=None,
             consultant_type=payload.consultant_type.strip() if payload.consultant_type else None,
             reporting_team_leader_id=payload.reporting_team_leader_id,
         )
-        self._get_department(payload.department_id)
-        if payload.approval_department_id is not None:
-            self._get_department(payload.approval_department_id)
-        if payload.team_department_id is not None:
-            self._get_department(payload.team_department_id)
-        if payload.receiving_department_id is not None:
-            self._get_department(payload.receiving_department_id)
-
-        user.roles = self._get_roles(payload.role_ids)
+        user.roles = roles_list
         if not self._user_has_consultant_role(user.roles):
             user.consultant_type = None
             user.reporting_team_leader_id = None
         else:
             self._validate_consultant_reporting_leader(
-                department_id=payload.department_id,
+                department_id=dept_id,
                 consultant_type=user.consultant_type,
                 reporting_team_leader_id=user.reporting_team_leader_id,
                 roles=user.roles,
             )
+
+        self.sync_profile_department_fields(user)
 
         self.db.add(user)
         try:
@@ -173,16 +236,11 @@ class UserService:
             if department_id is not None:
                 self._get_department(department_id)
             user.department_id = department_id
-        for wf_key in (
-            "approval_department_id",
-            "team_department_id",
-            "receiving_department_id",
-        ):
-            if wf_key in update_data:
-                did = update_data[wf_key]
-                if did is not None:
-                    self._get_department(did)
-                setattr(user, wf_key, did)
+        if "team_department_id" in update_data:
+            did = update_data["team_department_id"]
+            if did is not None:
+                self._get_department(did)
+            user.team_department_id = did
         if "consultant_type" in update_data:
             v = update_data["consultant_type"]
             user.consultant_type = v.strip() if v else None
@@ -201,6 +259,8 @@ class UserService:
                 roles=roles_list,
             )
 
+        self.sync_profile_department_fields(user)
+
         try:
             self.db.commit()
         except IntegrityError as exc:
@@ -210,12 +270,18 @@ class UserService:
         self.db.refresh(user)
         return self.get_user(user.id)
 
-    def delete_user(self, user_id: int) -> None:
+    def delete_user_or_deactivate(self, user_id: int) -> tuple[str, str]:
         user = self.db.get(User, user_id)
         if user is None:
             raise ValueError("User not found")
+        if self._user_has_workflow_history(user_id):
+            user.status = UserStatus.INACTIVE
+            return (
+                "deactivated",
+                "User has workflow history; account has been deactivated instead of deleted.",
+            )
         self.db.delete(user)
-        self.db.commit()
+        return ("deleted", "User deleted successfully.")
 
     def get_user(self, user_id: int) -> User:
         user = self.db.scalar(
@@ -324,4 +390,50 @@ class UserService:
         if department_id is not None:
             stmt = stmt.where(User.department_id == department_id)
         stmt = stmt.order_by(User.full_name.asc()).limit(limit)
+        return list(self.db.scalars(stmt).all())
+
+    def list_assignable_workflow_users(
+        self,
+        *,
+        q: str | None,
+        limit: int,
+    ) -> list[User]:
+        role_names = expand_role_names(Roles.CONSULTANT) | expand_role_names(Roles.TEAM_LEADER)
+        stmt = (
+            select(User)
+            .join(user_roles, User.id == user_roles.c.user_id)
+            .join(Role, Role.id == user_roles.c.role_id)
+            .where(Role.name.in_(role_names))
+            .where(User.status == UserStatus.ACTIVE)
+            .options(selectinload(User.roles), selectinload(User.department))
+            .distinct()
+            .order_by(User.full_name.asc())
+            .limit(limit)
+        )
+        if q:
+            qq = f"%{q.strip()}%"
+            stmt = stmt.where(or_(User.full_name.ilike(qq), User.email.ilike(qq), User.username.ilike(qq)))
+        return list(self.db.scalars(stmt).all())
+
+    def list_consultants_directory(
+        self,
+        *,
+        q: str | None,
+        limit: int,
+    ) -> list[User]:
+        role_names = expand_role_names(Roles.CONSULTANT)
+        stmt = (
+            select(User)
+            .join(user_roles, User.id == user_roles.c.user_id)
+            .join(Role, Role.id == user_roles.c.role_id)
+            .where(Role.name.in_(role_names))
+            .where(User.status == UserStatus.ACTIVE)
+            .options(selectinload(User.roles), selectinload(User.department))
+            .distinct()
+            .order_by(User.full_name.asc())
+            .limit(limit)
+        )
+        if q:
+            qq = f"%{q.strip()}%"
+            stmt = stmt.where(or_(User.full_name.ilike(qq), User.email.ilike(qq), User.username.ilike(qq)))
         return list(self.db.scalars(stmt).all())

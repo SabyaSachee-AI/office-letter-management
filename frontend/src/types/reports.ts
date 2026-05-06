@@ -22,4 +22,6 @@ export type ReportQueryParams = {
   date_to?: string;
   department_id?: number;
   status?: string;
+  q?: string;
+  from_office?: string;
 };

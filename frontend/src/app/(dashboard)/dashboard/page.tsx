@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { NoticeBoard } from "@/components/dashboard/notice-board";
 import { useAuth } from "@/context/auth-context";
 
 export default function DashboardHomePage() {
@@ -18,6 +19,7 @@ export default function DashboardHomePage() {
           office and government correspondence management.
         </p>
       </div>
+      <NoticeBoard user={user ?? null} />
     </div>
   );
 }

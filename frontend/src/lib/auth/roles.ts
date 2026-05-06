@@ -62,3 +62,18 @@ export function isConsultant(user: UserOut | null): boolean {
 export function isReceivingOfficer(user: UserOut | null): boolean {
   return hasRoleName(user, RECEIVING_OFFICER);
 }
+
+export function isApprovalHead(user: UserOut | null): boolean {
+  return hasRoleName(user, APPROVAL_HEAD);
+}
+
+/** Central inward / approval roles: not scoped by user's department for letter lists. */
+export function isCentralLetterRole(user: UserOut | null): boolean {
+  return isReceivingOfficer(user) || isApprovalHead(user);
+}
+
+/** Primary department for workflow UIs (Team Leader / Consultant may use team_department). */
+export function workflowDepartmentId(user: UserOut | null): number | undefined {
+  if (!user) return undefined;
+  return user.department?.id ?? user.team_department?.id ?? undefined;
+}

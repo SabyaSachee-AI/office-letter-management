@@ -13,19 +13,17 @@ export async function fetchRoles(): Promise<RoleOut[]> {
   return data;
 }
 
-let _departmentsInflight: Promise<DepartmentOut[]> | null = null;
+export type FetchDepartmentsOptions = { excludeLegacy?: boolean };
 
-/** Departments rarely change; dedupe concurrent calls while a fetch is in flight. */
-export async function fetchDepartments(): Promise<DepartmentOut[]> {
-  if (!_departmentsInflight) {
-    _departmentsInflight = api
-      .get<DepartmentOut[]>("/api/v1/reference/departments")
-      .then(({ data }) => data)
-      .finally(() => {
-        _departmentsInflight = null;
-      });
-  }
-  return _departmentsInflight;
+export async function fetchDepartments(
+  options?: FetchDepartmentsOptions
+): Promise<DepartmentOut[]> {
+  const { data } = await api.get<DepartmentOut[]>("/api/v1/reference/departments", {
+    params: {
+      exclude_legacy: options?.excludeLegacy === true ? true : undefined,
+    },
+  });
+  return data;
 }
 
 export type ListUsersParams = {
@@ -84,8 +82,14 @@ export async function updateUser(
   return data;
 }
 
-export async function deleteUser(userId: number): Promise<void> {
-  await api.delete(`/api/v1/users/${userId}`);
+export type UserDeleteResult = {
+  action: string;
+  message: string;
+};
+
+export async function deleteUser(userId: number): Promise<UserDeleteResult> {
+  const { data } = await api.delete<UserDeleteResult>(`/api/v1/users/${userId}`);
+  return data;
 }
 
 /** Team Leader / System Admin: consultants in a department for assignment (requires Assignment screen). */
@@ -99,6 +103,24 @@ export async function listConsultantsForAssignment(
       q: q || undefined,
       limit: 100,
     },
+  });
+  return data.items;
+}
+
+export async function listAssignableWorkflowUsers(
+  q?: string
+): Promise<UserOut[]> {
+  const { data } = await api.get<UserListResponse>("/api/v1/users/assignable-workflow-users", {
+    params: { q: q || undefined, limit: 200 },
+  });
+  return data.items;
+}
+
+export async function listConsultantsDirectory(
+  q?: string
+): Promise<UserOut[]> {
+  const { data } = await api.get<UserListResponse>("/api/v1/users/consultants-directory", {
+    params: { q: q || undefined, limit: 200 },
   });
   return data.items;
 }

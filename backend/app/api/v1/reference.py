@@ -48,10 +48,13 @@ def list_roles(
 def list_departments(
     db: Annotated[Session, Depends(get_db)],
     q: str | None = Query(default=None),
+    exclude_legacy: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[DepartmentOut]:
     stmt = select(Department)
+    if exclude_legacy:
+        stmt = stmt.where(Department.is_legacy.is_(False))
     if q:
         qv = f"%{q.strip()}%"
         stmt = stmt.where((Department.name.ilike(qv)) | (Department.code.ilike(qv)))

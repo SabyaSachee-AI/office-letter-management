@@ -7,11 +7,19 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.activity import AuditLog, LoginLog
 from app.models.letter import Letter, LetterAssignment, LetterStatus
 from app.models.user import User
-from app.rbac.roles import is_system_admin
+from app.rbac.roles import Roles, has_role_name, is_system_admin
 
 
 def _is_admin(user: User) -> bool:
     return is_system_admin(user)
+
+
+def _is_receiving_officer(user: User) -> bool:
+    return has_role_name(user, Roles.RECEIVING_OFFICER)
+
+
+def _is_approval_head(user: User) -> bool:
+    return has_role_name(user, Roles.APPROVAL_HEAD_PEC)
 
 
 @dataclass
@@ -20,6 +28,8 @@ class ReportFilters:
     date_to: date | None
     department_id: int | None
     status: LetterStatus | None
+    q: str | None = None
+    from_office: str | None = None
 
 
 class ReportsService:
@@ -28,6 +38,8 @@ class ReportsService:
 
     def _validate_department_scope(self, user: User, requested: int | None) -> None:
         if _is_admin(user):
+            return
+        if _is_receiving_officer(user) or _is_approval_head(user):
             return
         if (
             requested is not None
@@ -39,6 +51,8 @@ class ReportsService:
     def _effective_department_id(self, user: User, requested: int | None) -> int | None:
         if _is_admin(user):
             return requested
+        if _is_receiving_officer(user) or _is_approval_head(user):
+            return requested
         return user.department_id
 
     def _letter_conditions(self, user: User, filters: ReportFilters) -> list:
@@ -47,7 +61,7 @@ class ReportsService:
         eff = self._effective_department_id(user, filters.department_id)
         if eff is not None:
             conds.append(Letter.department_id == eff)
-        elif not _is_admin(user):
+        elif not _is_admin(user) and not _is_receiving_officer(user) and not _is_approval_head(user):
             conds.append(Letter.id == -1)
         if filters.date_from is not None:
             start = datetime(
@@ -71,6 +85,15 @@ class ReportsService:
             conds.append(Letter.created_at <= end)
         if filters.status is not None:
             conds.append(Letter.status == filters.status)
+        if filters.q:
+            qv = f"%{filters.q.strip()}%"
+            conds.append(
+                (Letter.serial_no.ilike(qv))
+                | (Letter.memo_no.ilike(qv))
+                | (Letter.subject.ilike(qv))
+            )
+        if filters.from_office:
+            conds.append(Letter.received_from.ilike(f"%{filters.from_office.strip()}%"))
         return conds
 
     def _where(self, conds: list):
@@ -88,6 +111,17 @@ class ReportsService:
             select(Letter.status, func.count(Letter.id)).where(wc).group_by(Letter.status)
         ).all()
         letters_by_status = {s.value: c for s, c in status_rows}
+        pending_assignment = (
+            self.db.scalar(
+                select(func.count(Letter.id)).where(
+                    wc,
+                    Letter.status == LetterStatus.RECEIVED,
+                    Letter.department_id.is_(None),
+                )
+            )
+            or 0
+        )
+        letters_by_status["pending_assignment"] = pending_assignment
 
         priority_rows = self.db.execute(
             select(Letter.priority, func.count(Letter.id)).where(wc).group_by(Letter.priority)

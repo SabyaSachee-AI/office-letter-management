@@ -1,26 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { FilterSelect } from "@/components/forms/filter-select";
+import { LetterFilterBar } from "@/components/letters/letter-filter-bar";
+import { LettersTable } from "@/components/letters/letters-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/auth-context";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isCentralLetterRole } from "@/lib/auth/roles";
 import {
   downloadLettersPdf,
   downloadLettersXlsx,
   fetchReportAnalytics,
 } from "@/lib/api/reports";
+import { listLetters } from "@/lib/api/letters";
 import { fetchDepartments } from "@/lib/api/users";
 import type { AnalyticsOut } from "@/types/reports";
+import type { LetterOut } from "@/types/letter";
 import type { DepartmentOut } from "@/types/user";
 
 const STATUS_OPTS = [
+  { value: "pending_assignment", label: "Pending Assignment" },
   { value: "received", label: "Received" },
   { value: "under_review", label: "Under review" },
   { value: "returned_for_correction", label: "Returned" },
@@ -81,28 +86,49 @@ function DistributionBars({
 }
 
 export function ReportsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const admin = isAdmin(user);
+  const central = isCentralLetterRole(user);
   const defaults = useMemo(() => defaultDateRange(), []);
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
   const [status, setStatus] = useState("");
+  const [searchQ, setSearchQ] = useState("");
+  const [fromOffice, setFromOffice] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
   const [departments, setDepartments] = useState<DepartmentOut[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsOut | null>(null);
+  const [sampleLetters, setSampleLetters] = useState<LetterOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchDepartments().then(setDepartments);
+    setDateFrom(searchParams.get("date_from") ?? defaults.from);
+    setDateTo(searchParams.get("date_to") ?? defaults.to);
+    setStatus(searchParams.get("status") ?? "");
+    setSearchQ(searchParams.get("q") ?? "");
+    setFromOffice(searchParams.get("from_office") ?? "");
+    setDeptFilter(searchParams.get("department_id") ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void fetchDepartments({ excludeLegacy: true }).then(setDepartments);
   }, []);
 
   const departmentId = admin
     ? deptFilter
       ? Number(deptFilter)
       : undefined
-    : user?.department?.id;
+    : central
+      ? deptFilter
+        ? Number(deptFilter)
+        : undefined
+      : user?.department?.id;
 
   const queryParams = useMemo(
     () => ({
@@ -110,22 +136,50 @@ export function ReportsPage() {
       date_to: dateTo || undefined,
       status: status || undefined,
       department_id: departmentId,
+      q: searchQ || undefined,
+      from_office: fromOffice || undefined,
     }),
-    [dateFrom, dateTo, status, departmentId]
+    [dateFrom, dateTo, status, departmentId, searchQ, fromOffice]
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchReportAnalytics(queryParams);
+      const [data, lettersRes] = await Promise.all([
+        fetchReportAnalytics(queryParams),
+        listLetters({
+          limit: 25,
+          offset: 0,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          department_id: departmentId,
+          q: searchQ || undefined,
+          from_office: fromOffice || undefined,
+          status:
+            status === "pending_assignment"
+              ? "received"
+              : status || undefined,
+          unassigned_only: status === "pending_assignment",
+        }),
+      ]);
       setAnalytics(data);
+      setSampleLetters(lettersRes.items);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load analytics");
+      setSampleLetters([]);
     } finally {
       setLoading(false);
     }
-  }, [queryParams]);
+  }, [
+    queryParams,
+    dateFrom,
+    dateTo,
+    departmentId,
+    searchQ,
+    fromOffice,
+    status,
+  ]);
 
   useEffect(() => {
     void load();
@@ -137,6 +191,50 @@ export function ReportsPage() {
         title="Reports & exports"
         description="Analytics for letters and assignments. Exports use the same filters. Non-administrators are scoped to their department."
       />
+
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200/80 bg-slate-50/90 p-4 shadow-sm">
+        <LetterFilterBar
+          search={searchQ}
+          fromOffice={fromOffice}
+          status={status}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          department={deptFilter}
+          onSearchChange={setSearchQ}
+          onFromOfficeChange={setFromOffice}
+          onStatusChange={setStatus}
+          onDateFromChange={setDateFrom}
+          onDateToChange={setDateTo}
+          onDepartmentChange={setDeptFilter}
+          onApply={() => {
+            const next = new URLSearchParams(searchParams.toString());
+            next.set("q", searchQ);
+            next.set("from_office", fromOffice);
+            next.set("status", status);
+            next.set("date_from", dateFrom);
+            next.set("date_to", dateTo);
+            if (deptFilter) next.set("department_id", deptFilter);
+            else next.delete("department_id");
+            router.replace(`${pathname}?${next.toString()}`);
+            void load();
+          }}
+          onReset={() => {
+            setSearchQ("");
+            setFromOffice("");
+            setStatus("");
+            setDeptFilter("");
+            setDateFrom(defaults.from);
+            setDateTo(defaults.to);
+            router.replace(pathname);
+          }}
+          statusOptions={STATUS_OPTS}
+          showDepartment={admin || central}
+          departmentOptions={departments.map((d) => ({
+            value: String(d.id),
+            label: d.name,
+          }))}
+        />
+      </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200/80 bg-slate-50/90 p-4 shadow-sm">
         <div className="grid gap-1.5">
@@ -163,33 +261,6 @@ export function ReportsPage() {
             className="w-[11rem]"
           />
         </div>
-        <div className="grid gap-1.5">
-          <span className="text-muted-foreground text-xs font-medium">Status</span>
-          <FilterSelect
-            aria-label="Status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            options={STATUS_OPTS}
-            placeholderLabel="Any status"
-          />
-        </div>
-        {admin ? (
-          <div className="grid gap-1.5">
-            <span className="text-muted-foreground text-xs font-medium">
-              Department
-            </span>
-            <FilterSelect
-              aria-label="Department"
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              options={departments.map((d) => ({
-                value: String(d.id),
-                label: d.name,
-              }))}
-              placeholderLabel="All departments"
-            />
-          </div>
-        ) : null}
         <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
           Refresh
         </Button>
@@ -307,6 +378,19 @@ export function ReportsPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Letters matching filters</CardTitle>
+              <p className="text-muted-foreground text-sm">
+                Sample of up to 25 letters for the current filters (same scope as exports). Open a
+                row to review the full letter and workflow history.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <LettersTable letters={sampleLetters} loading={loading} />
+            </CardContent>
+          </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>

@@ -19,7 +19,7 @@ export type LetterOut = {
   pdf_path: string;
   priority: LetterPriority;
   status: LetterStatus;
-  department: DepartmentOut;
+  department: DepartmentOut | null;
   created_by: number;
   created_at: string;
   closed_at?: string | null;
@@ -41,7 +41,7 @@ export type ApprovalQueueItem = {
   received_from: string;
   status: LetterStatus;
   priority: LetterPriority;
-  department: DepartmentOut;
+  department: DepartmentOut | null;
   created_at: string;
 };
 
@@ -59,6 +59,7 @@ export type LetterActionHistoryItem = {
   acted_by: number;
   acted_by_full_name?: string | null;
   acted_by_email?: string | null;
+  acted_by_roles?: string[];
   from_department_id: number | null;
   to_department_id: number | null;
   created_at: string;
@@ -77,6 +78,14 @@ export type AssignmentWorkStatus =
   | "resolved"
   | "transferred";
 
+export type AssignmentUserBrief = {
+  id: number;
+  full_name: string;
+  email: string;
+  roles: string[];
+  department: DepartmentOut | null;
+};
+
 export type AssignmentOut = {
   id: number;
   letter_id: number;
@@ -88,6 +97,8 @@ export type AssignmentOut = {
   resolution_note: string | null;
   assigned_at: string;
   updated_at: string;
+  consultant_user?: AssignmentUserBrief | null;
+  assigned_by_user?: AssignmentUserBrief | null;
 };
 
 export type AssignmentTrackingResponse = {
@@ -105,6 +116,7 @@ export type ConsultantAssignmentRow = {
   subject: string;
   received_from: string;
   deadline_at: string;
+  letter_department?: DepartmentOut | null;
 };
 
 export type ConsultantAssignmentListResponse = {

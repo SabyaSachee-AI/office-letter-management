@@ -45,7 +45,7 @@ class UserCreate(BaseModel):
     employee_id: str | None = Field(default=None, max_length=64)
     designation: str | None = Field(default=None, max_length=120)
     role_ids: list[int] = Field(default_factory=list)
-    department_id: int
+    department_id: int | None = None
     status: UserStatus = UserStatus.ACTIVE
     approval_department_id: int | None = None
     team_department_id: int | None = None
@@ -99,6 +99,11 @@ class DepartmentAssignment(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: UserStatus
+
+
+class UserDeleteResult(BaseModel):
+    action: str  # "deleted" | "deactivated"
+    message: str
 
 
 class RoleSeedIn(BaseModel):

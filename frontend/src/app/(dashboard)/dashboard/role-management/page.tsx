@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/context/auth-context";
 import { getApiErrorMessage } from "@/lib/api/error-message";
+import { toastError, toastSuccess } from "@/lib/toast";
 import {
   fetchPermissionMatrix,
   resetPermissionMatrix,
@@ -91,8 +92,11 @@ export default function RoleManagementPage() {
     try {
       await savePermissionMatrix({ grants: draft });
       await load();
+      toastSuccess("Role permissions updated successfully.");
     } catch (e) {
-      setError(getApiErrorMessage(e));
+      const m = getApiErrorMessage(e);
+      setError(m);
+      toastError(m);
     } finally {
       setPending(false);
     }
@@ -105,8 +109,11 @@ export default function RoleManagementPage() {
     try {
       await resetPermissionMatrix();
       await load();
+      toastSuccess("Permissions reset to defaults.");
     } catch (e) {
-      setError(getApiErrorMessage(e));
+      const m = getApiErrorMessage(e);
+      setError(m);
+      toastError(m);
     } finally {
       setPending(false);
     }

@@ -8,6 +8,8 @@ from app.schemas.department import DepartmentOut
 
 class WorkflowActionIn(BaseModel):
     comment: str = Field(min_length=2, max_length=500)
+    target_department_id: int | None = None
+    priority: LetterPriority | None = None
 
 
 class RouteLetterIn(WorkflowActionIn):
@@ -34,7 +36,7 @@ class ApprovalQueueItemOut(BaseModel):
     received_from: str
     status: LetterStatus
     priority: LetterPriority
-    department: DepartmentOut
+    department: DepartmentOut | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

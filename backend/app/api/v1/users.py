@@ -14,6 +14,7 @@ from app.schemas.user import (
     RoleAssignment,
     StatusUpdate,
     UserCreate,
+    UserDeleteResult,
     UserFilterParams,
     UserListResponse,
     UserOut,
@@ -62,6 +63,51 @@ def list_consultants_for_assignment(
 ) -> UserListResponse:
     service = UserService(db)
     users = service.list_consultants_for_assignment(department_id=department_id, q=q, limit=limit)
+    return UserListResponse(
+        items=[_user_out(db, u, with_screens=False) for u in users],
+        total=len(users),
+        limit=limit,
+        offset=0,
+    )
+
+
+@router.get(
+    "/assignable-workflow-users",
+    response_model=UserListResponse,
+    dependencies=[
+        Depends(require_screen(ScreenKey.ASSIGNMENT)),
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER)),
+    ],
+)
+def list_assignable_workflow_users(
+    db: Annotated[Session, Depends(get_db)],
+    q: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=300),
+) -> UserListResponse:
+    service = UserService(db)
+    users = service.list_assignable_workflow_users(q=q, limit=limit)
+    return UserListResponse(
+        items=[_user_out(db, u, with_screens=False) for u in users],
+        total=len(users),
+        limit=limit,
+        offset=0,
+    )
+
+
+@router.get(
+    "/consultants-directory",
+    response_model=UserListResponse,
+    dependencies=[
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER, Roles.CONSULTANT)),
+    ],
+)
+def list_consultants_directory(
+    db: Annotated[Session, Depends(get_db)],
+    q: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=300),
+) -> UserListResponse:
+    service = UserService(db)
+    users = service.list_consultants_directory(q=q, limit=limit)
     return UserListResponse(
         items=[_user_out(db, u, with_screens=False) for u in users],
         total=len(users),
@@ -172,23 +218,24 @@ def update_user(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[UsersScreen, SystemAdminOnly])
+@router.delete("/{user_id}", response_model=UserDeleteResult, dependencies=[UsersScreen, SystemAdminOnly])
 def delete_user(
     user_id: int,
     db: Annotated[Session, Depends(get_db)],
     actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
-) -> None:
+) -> UserDeleteResult:
     service = UserService(db)
     try:
-        service.delete_user(user_id)
+        action, message = service.delete_user_or_deactivate(user_id)
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
-            action="user_deleted",
+            action="user_deactivated" if action == "deactivated" else "user_deleted",
             resource_type="user",
             resource_id=user_id,
-            detail=None,
+            detail={"result": action},
         )
         db.commit()
+        return UserDeleteResult(action=action, message=message)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

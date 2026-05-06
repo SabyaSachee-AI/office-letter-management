@@ -1,8 +1,10 @@
-from sqlalchemy import func, or_, select
+from datetime import date, datetime, timezone
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.department import Department
-from app.models.letter import Letter, LetterAction, LetterActionType, LetterStatus
+from app.models.letter import Letter, LetterAction, LetterActionType, LetterPriority, LetterStatus
 from app.models.user import User
 from app.rbac.roles import is_system_admin
 
@@ -23,10 +25,6 @@ class WorkflowService:
         )
         if letter is None:
             raise ValueError("Letter not found")
-        if not self._is_admin(user) and user.department_id is None:
-            raise ValueError("Current user has no assigned department")
-        if not self._is_admin(user) and letter.department_id != user.department_id:
-            raise ValueError("Letter does not belong to your department")
         return letter
 
     def _record_action(
@@ -55,30 +53,44 @@ class WorkflowService:
         limit: int,
         offset: int,
         *,
+        status: LetterStatus | None = None,
+        department_id: int | None = None,
+        from_office: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         q: str | None = None,
     ) -> tuple[list[Letter], int]:
-        if user.department_id is None and not self._is_admin(user):
-            return [], 0
         queue_statuses = (
             LetterStatus.RECEIVED,
-            LetterStatus.UNDER_REVIEW,
             LetterStatus.RETURNED_FOR_CORRECTION,
         )
-        base = select(Letter).where(Letter.status.in_(queue_statuses))
-        count_stmt = select(func.count(Letter.id)).where(Letter.status.in_(queue_statuses))
-        if not self._is_admin(user):
-            base = base.where(Letter.department_id == user.department_id)
-            count_stmt = count_stmt.where(Letter.department_id == user.department_id)
+        conds = [Letter.status.in_(queue_statuses)]
+        if status is not None:
+            conds.append(Letter.status == status)
+        if department_id is not None:
+            conds.append(Letter.department_id == department_id)
+        if from_office:
+            conds.append(Letter.received_from.ilike(f"%{from_office.strip()}%"))
+        if date_from is not None:
+            start = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+            conds.append(Letter.created_at >= start)
+        if date_to is not None:
+            end = datetime(
+                date_to.year, date_to.month, date_to.day, 23, 59, 59, 999999, tzinfo=timezone.utc
+            )
+            conds.append(Letter.created_at <= end)
         if q:
             qv = f"%{q.strip()}%"
-            search_filter = or_(
-                Letter.serial_no.ilike(qv),
-                Letter.memo_no.ilike(qv),
-                Letter.subject.ilike(qv),
-                Letter.received_from.ilike(qv),
+            conds.append(
+                or_(
+                    Letter.serial_no.ilike(qv),
+                    Letter.memo_no.ilike(qv),
+                    Letter.subject.ilike(qv),
+                )
             )
-            base = base.where(search_filter)
-            count_stmt = count_stmt.where(search_filter)
+        where_clause = and_(*conds)
+        base = select(Letter).where(where_clause)
+        count_stmt = select(func.count(Letter.id)).where(where_clause)
         total = self.db.scalar(count_stmt) or 0
         items = list(
             self.db.scalars(
@@ -90,12 +102,36 @@ class WorkflowService:
         )
         return items, total
 
-    def approve(self, letter_id: int, comment: str, user: User) -> Letter:
+    def approve(
+        self,
+        letter_id: int,
+        comment: str,
+        user: User,
+        *,
+        target_department_id: int | None = None,
+        priority: LetterPriority | None = None,
+    ) -> Letter:
         letter = self._get_letter_for_department(letter_id, user)
         if letter.status in (LetterStatus.REJECTED, LetterStatus.CLOSED):
             raise ValueError("This letter cannot be approved anymore")
+        if target_department_id is not None:
+            target = self.db.get(Department, target_department_id)
+            if target is None:
+                raise ValueError("Target department not found")
+            letter.department_id = target.id
+        if priority is not None:
+            letter.priority = priority
+        if letter.department_id is None:
+            raise ValueError("Department is required before approval")
         letter.status = LetterStatus.PROCESSED
-        self._record_action(letter, LetterActionType.APPROVE, comment, user, letter.department_id, letter.department_id)
+        self._record_action(
+            letter,
+            LetterActionType.APPROVE,
+            comment,
+            user,
+            letter.department_id,
+            letter.department_id,
+        )
         self.db.commit()
         self.db.refresh(letter)
         return letter

@@ -17,6 +17,12 @@ export function useUnderReviewLetters(departmentId: number | undefined) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [fromOffice, setFromOffice] = useState("");
+  const [status, setStatus] = useState("under_review");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,8 +31,12 @@ export function useUnderReviewLetters(departmentId: number | undefined) {
       const res = await listLetters({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
-        status: "under_review",
-        department_id: departmentId,
+        status: status || undefined,
+        department_id: departmentId ?? (departmentFilter ? Number(departmentFilter) : undefined),
+        from_office: fromOffice || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        q: searchQ || undefined,
       });
       setItems(res.items);
       setTotal(res.total);
@@ -37,7 +47,7 @@ export function useUnderReviewLetters(departmentId: number | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [page, departmentId]);
+  }, [page, departmentId, departmentFilter, status, fromOffice, dateFrom, dateTo, searchQ]);
 
   useEffect(() => {
     void load();
@@ -52,5 +62,19 @@ export function useUnderReviewLetters(departmentId: number | undefined) {
     loading,
     error,
     reload: load,
+    filters: {
+      searchQ,
+      setSearchQ,
+      fromOffice,
+      setFromOffice,
+      status,
+      setStatus,
+      dateFrom,
+      setDateFrom,
+      dateTo,
+      setDateTo,
+      departmentFilter,
+      setDepartmentFilter,
+    },
   };
 }

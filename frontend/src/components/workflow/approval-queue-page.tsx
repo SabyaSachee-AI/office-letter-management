@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { DataTable, type DataTableColumn } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/empty-state";
@@ -9,43 +10,52 @@ import { ErrorBanner } from "@/components/data/error-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { PaginationBar } from "@/components/data/pagination-bar";
 import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/letter-badges";
-import { WorkflowActionDialog, type WorkflowActionMode } from "@/components/workflow/workflow-action-dialog";
+import { LetterFilterBar } from "@/components/letters/letter-filter-bar";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/context/auth-context";
-import { canApprovalActions } from "@/lib/auth/roles";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { getApprovalQueue } from "@/lib/api/workflow";
-import { fetchDepartments } from "@/lib/api/users";
 import type { ApprovalQueueItem } from "@/types/letter";
-import type { DepartmentOut } from "@/types/user";
 
 const PAGE = 20;
 
 export function ApprovalQueuePage() {
-  const { user } = useAuth();
-  const decide = canApprovalActions(user);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(0);
   const [items, setItems] = useState<ApprovalQueueItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [departments, setDepartments] = useState<DepartmentOut[]>([]);
-  const [dialog, setDialog] = useState<{
-    mode: WorkflowActionMode;
-    letterId: number;
-  } | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [fromOffice, setFromOffice] = useState("");
+  const [status, setStatus] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  useEffect(() => {
+    setSearchQ(searchParams.get("q") ?? "");
+    setFromOffice(searchParams.get("from_office") ?? "");
+    setStatus(searchParams.get("status") ?? "");
+    setDateFrom(searchParams.get("date_from") ?? "");
+    setDateTo(searchParams.get("date_to") ?? "");
+    setPage(Number(searchParams.get("page") ?? "0") || 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [res, depts] = await Promise.all([
-        getApprovalQueue(PAGE, page * PAGE),
-        fetchDepartments(),
-      ]);
+      const res = await getApprovalQueue(PAGE, page * PAGE, {
+        q: searchQ || undefined,
+        from_office: fromOffice || undefined,
+        status: status || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      });
       setItems(res.items);
       setTotal(res.total);
-      setDepartments(depts);
     } catch (e) {
       setLoadError(getApiErrorMessage(e));
       setItems([]);
@@ -53,7 +63,7 @@ export function ApprovalQueuePage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, searchQ, fromOffice, status, dateFrom, dateTo]);
 
   useEffect(() => {
     void load();
@@ -62,7 +72,7 @@ export function ApprovalQueuePage() {
   const columns: DataTableColumn<ApprovalQueueItem>[] = [
     {
       id: "serial",
-      header: "Serial",
+      header: "Serial No",
       cell: (l) => (
         <Link
           href={`/dashboard/letters/${l.id}`}
@@ -85,7 +95,18 @@ export function ApprovalQueuePage() {
       id: "subject",
       header: "Subject",
       cell: (l) => (
-        <div className="max-w-[200px] truncate text-sm">{l.subject}</div>
+        <div className="max-w-[360px] whitespace-normal text-sm leading-5" title={l.subject}>
+          {l.subject}
+        </div>
+      ),
+    },
+    {
+      id: "from",
+      header: "From Office",
+      cell: (l) => (
+        <span className="max-w-[220px] whitespace-normal text-sm leading-5" title={l.received_from}>
+          {l.received_from}
+        </span>
       ),
     },
     {
@@ -98,40 +119,79 @@ export function ApprovalQueuePage() {
       header: "Priority",
       cell: (l) => <LetterPriorityBadge priority={l.priority} />,
     },
+    {
+      id: "received",
+      header: "Received Date",
+      cell: (l) => (
+        <span className="text-sm">{new Date(l.created_at).toLocaleString()}</span>
+      ),
+    },
+    {
+      id: "view",
+      header: "View",
+      className: "w-32",
+      cell: (l) => (
+        <Link href={`/dashboard/letters/${l.id}`}>
+          <Button size="sm" variant="outline">
+            View
+          </Button>
+        </Link>
+      ),
+    },
   ];
 
-  if (decide) {
-    columns.push({
-      id: "actions",
-      header: "",
-      className: "w-[220px]",
-      cell: (l) => (
-        <div className="flex flex-wrap gap-1">
-          <Button size="xs" variant="outline" onClick={() => setDialog({ mode: "approve", letterId: l.id })}>
-            Approve
-          </Button>
-          <Button size="xs" variant="outline" onClick={() => setDialog({ mode: "reject", letterId: l.id })}>
-            Reject
-          </Button>
-          <Button size="xs" variant="outline" onClick={() => setDialog({ mode: "return", letterId: l.id })}>
-            Return
-          </Button>
-          <Button size="xs" variant="secondary" onClick={() => setDialog({ mode: "route", letterId: l.id })}>
-            Route
-          </Button>
-        </div>
-      ),
-    });
-  }
+  const STATUS_OPTS = [
+    { value: "received", label: "Received" },
+    { value: "returned_for_correction", label: "Returned" },
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Approval queue"
-        description="Letters awaiting review in your department (and admin view). Approvers can act from here or open a letter for more context."
+        description="Central review queue for all incoming letters awaiting department assignment. Not limited by user department."
       />
 
       {loadError ? <ErrorBanner message={loadError} /> : null}
+
+      <LetterFilterBar
+        search={searchQ}
+        fromOffice={fromOffice}
+        status={status}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        department=""
+        onSearchChange={setSearchQ}
+        onFromOfficeChange={setFromOffice}
+        onStatusChange={setStatus}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        onDepartmentChange={() => undefined}
+        onApply={() => {
+          setPage(0);
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("q", searchQ);
+          next.set("from_office", fromOffice);
+          next.set("status", status);
+          next.set("date_from", dateFrom);
+          next.set("date_to", dateTo);
+          next.delete("department_id");
+          next.set("page", "0");
+          router.replace(`${pathname}?${next.toString()}`);
+          void load();
+        }}
+        onReset={() => {
+          setSearchQ("");
+          setFromOffice("");
+          setStatus("");
+          setDateFrom("");
+          setDateTo("");
+          setPage(0);
+          router.replace(pathname);
+        }}
+        statusOptions={STATUS_OPTS}
+        showDepartment={false}
+      />
 
       <DataTable
         columns={columns}
@@ -143,20 +203,17 @@ export function ApprovalQueuePage() {
         }
       />
 
-      <PaginationBar page={page} pageSize={PAGE} total={total} onPageChange={setPage} />
-
-      {dialog ? (
-        <WorkflowActionDialog
-          letterId={dialog.letterId}
-          mode={dialog.mode}
-          open={Boolean(dialog)}
-          onOpenChange={(o) => {
-            if (!o) setDialog(null);
-          }}
-          departments={departments}
-          onSuccess={() => void load()}
-        />
-      ) : null}
+      <PaginationBar
+        page={page}
+        pageSize={PAGE}
+        total={total}
+        onPageChange={(nextPage) => {
+          setPage(nextPage);
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("page", String(nextPage));
+          router.replace(`${pathname}?${next.toString()}`);
+        }}
+      />
     </div>
   );
 }

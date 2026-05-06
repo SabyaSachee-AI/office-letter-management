@@ -7,13 +7,37 @@ from app.core.letter_access import assert_assigning_user_can_access_letter, can_
 from app.models.activity import NotificationKind
 from app.models.letter import Letter, LetterAction, LetterActionType, LetterAssignment, LetterStatus
 from app.models.user import User
+from app.models.user import UserStatus
 from app.rbac.roles import Roles, has_role_name
+from app.schemas.assignment import AssignmentOut, assignment_user_brief
 from app.services.activity_service import ActivityService
 
 
 class AssignmentService:
     def __init__(self, db: Session):
         self.db = db
+
+    def enrich_assignments(self, rows: list[LetterAssignment]) -> list[AssignmentOut]:
+        if not rows:
+            return []
+        user_ids = {a.consultant_id for a in rows} | {a.assigned_by for a in rows}
+        users_list = list(
+            self.db.scalars(
+                select(User)
+                .where(User.id.in_(user_ids))
+                .options(selectinload(User.roles), selectinload(User.department))
+            ).all()
+        )
+        users_map = {u.id: u for u in users_list}
+        out: list[AssignmentOut] = []
+        for a in rows:
+            base = AssignmentOut.model_validate(a).model_dump()
+            cu = users_map.get(a.consultant_id)
+            bu = users_map.get(a.assigned_by)
+            base["consultant_user"] = assignment_user_brief(cu) if cu else None
+            base["assigned_by_user"] = assignment_user_brief(bu) if bu else None
+            out.append(AssignmentOut(**base))
+        return out
 
     @staticmethod
     def _has_role(user: User, role_name: str) -> bool:
@@ -25,19 +49,19 @@ class AssignmentService:
             raise ValueError("Letter not found")
         return letter
 
-    def _get_consultant(self, consultant_id: int, department_id: int) -> User:
-        consultant = self.db.scalar(
+    def _get_assignee(self, assignee_id: int) -> User:
+        assignee = self.db.scalar(
             select(User)
             .options(selectinload(User.roles))
-            .where(User.id == consultant_id)
+            .where(User.id == assignee_id)
         )
-        if consultant is None:
-            raise ValueError("Consultant not found")
-        if consultant.department_id != department_id:
-            raise ValueError("Consultant must belong to the same department as letter")
-        if not self._has_role(consultant, Roles.CONSULTANT):
-            raise ValueError("Selected user is not a consultant")
-        return consultant
+        if assignee is None:
+            raise ValueError("Assignee not found")
+        if assignee.status != UserStatus.ACTIVE:
+            raise ValueError("Assignee must be active")
+        if not (self._has_role(assignee, Roles.CONSULTANT) or self._has_role(assignee, Roles.TEAM_LEADER)):
+            raise ValueError("Assignee must be a Consultant or Team Leader")
+        return assignee
 
     def _validate_deadline(self, deadline_at: datetime) -> None:
         if deadline_at <= datetime.now(timezone.utc):
@@ -72,9 +96,11 @@ class AssignmentService:
         current_user: User,
     ) -> LetterAssignment:
         letter = self._get_letter(letter_id)
+        if letter.department_id is None:
+            raise ValueError("Letter department is pending assignment")
         assert_assigning_user_can_access_letter(current_user, letter)
         self._validate_deadline(deadline_at)
-        self._get_consultant(consultant_id, letter.department_id)
+        self._get_assignee(consultant_id)
         current = self.db.scalar(
             select(LetterAssignment)
             .where(LetterAssignment.letter_id == letter_id, LetterAssignment.is_active.is_(True))
@@ -114,9 +140,11 @@ class AssignmentService:
         current_user: User,
     ) -> LetterAssignment:
         letter = self._get_letter(letter_id)
+        if letter.department_id is None:
+            raise ValueError("Letter department is pending assignment")
         assert_assigning_user_can_access_letter(current_user, letter)
         self._validate_deadline(deadline_at)
-        self._get_consultant(consultant_id, letter.department_id)
+        self._get_assignee(consultant_id)
         current = self._deactivate_current_assignment(letter_id)
         if current is None:
             raise ValueError("No active assignment found. Use assign endpoint first")

@@ -42,15 +42,23 @@ def test_letter_visibility_non_admin_has_clause():
     u.roles = [_Role(Roles.RECEIVING_OFFICER)]
     u.department_id = 3
     clause = letter_visibility_clause(u)
-    assert clause is not None
+    assert clause is None
 
 
-def test_create_letter_wrong_department():
+def test_letter_visibility_approval_head_pec_no_extra_clause():
+    u = MagicMock()
+    u.id = 7
+    u.roles = [_Role(Roles.APPROVAL_HEAD_PEC)]
+    u.department_id = 2
+    assert letter_visibility_clause(u) is None
+
+
+def test_create_letter_receiving_officer_allows_null_or_any_department():
     u = MagicMock()
     u.roles = [_Role(Roles.RECEIVING_OFFICER)]
     u.department_id = 1
-    with pytest.raises(ValueError, match="own department"):
-        assert_user_can_create_in_department(u, 99)
+    assert_user_can_create_in_department(u, None)
+    assert_user_can_create_in_department(u, 99)
 
 
 def test_assign_team_lead_wrong_department():

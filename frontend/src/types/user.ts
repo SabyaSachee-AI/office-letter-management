@@ -49,7 +49,7 @@ export type UserCreatePayload = {
   employee_id?: string | null;
   designation?: string | null;
   role_ids: number[];
-  department_id: number;
+  department_id?: number | null;
   status: string;
   approval_department_id?: number | null;
   team_department_id?: number | null;

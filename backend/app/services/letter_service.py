@@ -1,8 +1,9 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -26,20 +27,26 @@ class LetterService:
 
     def _generate_serial_no(self) -> str:
         now = datetime.now(timezone.utc)
-        date_part = now.strftime("%Y%m%d")
+        date_part = now.strftime("%y%m%d")
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-        total_today = (
-            self.db.scalar(
-                select(func.count(Letter.id)).where(
-                    Letter.created_at >= day_start,
-                    Letter.created_at <= day_end,
-                )
+        latest_today = self.db.scalar(
+            select(Letter.serial_no)
+            .where(
+                Letter.created_at >= day_start,
+                Letter.created_at <= day_end,
+                Letter.serial_no.like(f"LTR-{date_part}-%"),
             )
-            or 0
+            .order_by(Letter.serial_no.desc())
+            .limit(1)
         )
-        return f"LTR-{date_part}-{total_today + 1:04d}"
+        next_seq = 1
+        if latest_today:
+            try:
+                next_seq = int(latest_today.rsplit("-", 1)[1]) + 1
+            except (ValueError, IndexError):
+                next_seq = 1
+        return f"LTR-{date_part}-{next_seq:04d}"
 
     _ALLOWED_EXT = (
         ".pdf",
@@ -72,7 +79,7 @@ class LetterService:
         self,
         subject: str,
         received_from: str,
-        department_id: int,
+        department_id: int | None,
         priority: LetterPriority,
         file: UploadFile,
         created_by: User,
@@ -80,27 +87,33 @@ class LetterService:
         memo_no: str | None = None,
     ) -> Letter:
         assert_user_can_create_in_department(created_by, department_id)
-        department = self.db.get(Department, department_id)
-        if department is None:
-            raise ValueError("Department not found")
+        if department_id is not None:
+            department = self.db.get(Department, department_id)
+            if department is None:
+                raise ValueError("Department not found")
 
-        serial_no = self._generate_serial_no()
-        pdf_path = self._save_attachment(file, serial_no)
-
-        letter = Letter(
-            serial_no=serial_no,
-            memo_no=memo_no,
-            subject=subject,
-            received_from=received_from,
-            department_id=department_id,
-            priority=priority,
-            pdf_path=pdf_path,
-            created_by=created_by.id,
-        )
-        self.db.add(letter)
-        self.db.commit()
-        self.db.refresh(letter)
-        return self.get_letter(letter.id)
+        # Retry a few times to handle rare concurrent serial collisions safely.
+        for _ in range(5):
+            serial_no = self._generate_serial_no()
+            pdf_path = self._save_attachment(file, serial_no)
+            letter = Letter(
+                serial_no=serial_no,
+                memo_no=memo_no,
+                subject=subject,
+                received_from=received_from,
+                department_id=department_id,
+                priority=priority,
+                pdf_path=pdf_path,
+                created_by=created_by.id,
+            )
+            self.db.add(letter)
+            try:
+                self.db.commit()
+                self.db.refresh(letter)
+                return self.get_letter(letter.id)
+            except IntegrityError:
+                self.db.rollback()
+        raise ValueError("Failed to generate a unique serial number. Please retry.")
 
     def get_letter(self, letter_id: int) -> Letter:
         letter = self.db.scalar(
@@ -125,7 +138,12 @@ class LetterService:
         offset: int,
         *,
         status: LetterStatus | None = None,
+        priority: LetterPriority | None = None,
         department_id: int | None = None,
+        unassigned_only: bool = False,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        from_office: str | None = None,
         q: str | None = None,
     ) -> tuple[list[Letter], int]:
         base = select(Letter).options(selectinload(Letter.department))
@@ -137,16 +155,43 @@ class LetterService:
         if status is not None:
             base = base.where(Letter.status == status)
             count_base = count_base.where(Letter.status == status)
+        if priority is not None:
+            base = base.where(Letter.priority == priority)
+            count_base = count_base.where(Letter.priority == priority)
         if department_id is not None:
             base = base.where(Letter.department_id == department_id)
             count_base = count_base.where(Letter.department_id == department_id)
+        if unassigned_only:
+            base = base.where(Letter.department_id.is_(None))
+            count_base = count_base.where(Letter.department_id.is_(None))
+        if date_from is not None:
+            start = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+            base = base.where(Letter.created_at >= start)
+            count_base = count_base.where(Letter.created_at >= start)
+        if date_to is not None:
+            end = datetime(
+                date_to.year,
+                date_to.month,
+                date_to.day,
+                23,
+                59,
+                59,
+                999999,
+                tzinfo=timezone.utc,
+            )
+            base = base.where(Letter.created_at <= end)
+            count_base = count_base.where(Letter.created_at <= end)
+        if from_office:
+            from_office_q = f"%{from_office.strip()}%"
+            office_filter = Letter.received_from.ilike(from_office_q)
+            base = base.where(office_filter)
+            count_base = count_base.where(office_filter)
         if q:
             qv = f"%{q.strip()}%"
             search_filter = or_(
                 Letter.serial_no.ilike(qv),
                 Letter.memo_no.ilike(qv),
                 Letter.subject.ilike(qv),
-                Letter.received_from.ilike(qv),
             )
             base = base.where(search_filter)
             count_base = count_base.where(search_filter)

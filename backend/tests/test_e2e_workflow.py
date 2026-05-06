@@ -177,8 +177,6 @@ def test_full_workflow_reports_and_exports(client):
     data = {
         "subject": "E2E workflow letter",
         "received_from": "External Party",
-        "department_id": str(dept_id),
-        "priority": "normal",
         "memo_no": "  MEMO-E2E-001  ",
     }
     r_letter = c.post(
@@ -200,15 +198,20 @@ def test_full_workflow_reports_and_exports(client):
     assert r_find.status_code == 200, r_find.text
     assert any(row["id"] == letter_id for row in r_find.json()["items"])
 
-    # 4. Approval Head approves
+    # 4. Approval Head forwards by assigning department + priority
     appr_tok = _login(c, APPROVER_EMAIL)
     r_appr = c.post(
         f"/api/v1/workflow/letters/{letter_id}/approve",
         headers=_headers(appr_tok),
-        json={"comment": "Approved for processing."},
+        json={
+            "comment": "Forwarding to destination department.",
+            "target_department_id": dept_id,
+            "priority": "high",
+        },
     )
     assert r_appr.status_code == 200, r_appr.text
     assert r_appr.json()["status"] == "processed"
+    assert r_appr.json()["department"]["id"] == dept_id
 
     # 5. Team Leader assigns consultant
     leader_tok = _login(c, LEADER_EMAIL)

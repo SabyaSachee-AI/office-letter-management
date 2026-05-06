@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -17,6 +18,8 @@ from app.schemas.consultant import (
     ConsultantStatusUpdateIn,
     ConsultantTransferIn,
 )
+from app.schemas.department import DepartmentOut
+from app.services.assignment_service import AssignmentService
 from app.services.consultant_service import ConsultantService
 
 router = APIRouter(
@@ -33,6 +36,9 @@ def my_assignments(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None),
+    from_office: str | None = Query(default=None, max_length=255),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     work_status: AssignmentWorkStatus | None = Query(default=None),
 ) -> ConsultantAssignedLetterListOut:
     service = ConsultantService(db)
@@ -40,20 +46,29 @@ def my_assignments(
         current_user,
         limit,
         offset,
-        q=q,
+        q=(q.strip() or None) if q is not None else None,
+        from_office=(from_office.strip() or None) if from_office is not None else None,
+        date_from=date_from,
+        date_to=date_to,
         work_status=work_status,
     )
+    assign_service = AssignmentService(db)
+    assignment_rows = [pair[0] for pair in items]
+    enriched = assign_service.enrich_assignments(assignment_rows)
     mapped = [
         ConsultantAssignedLetterOut(
-            assignment=AssignmentOut.model_validate(assignment),
+            assignment=enriched[i],
             letter_id=letter.id,
             serial_no=letter.serial_no,
             memo_no=letter.memo_no,
             subject=letter.subject,
             received_from=letter.received_from,
-            deadline_at=assignment.deadline_at,
+            deadline_at=assignment_rows[i].deadline_at,
+            letter_department=DepartmentOut.model_validate(letter.department)
+            if letter.department
+            else None,
         )
-        for assignment, letter in items
+        for i, (_, letter) in enumerate(items)
     ]
     return ConsultantAssignedLetterListOut(items=mapped, total=total, limit=limit, offset=offset)
 
@@ -66,6 +81,7 @@ def update_assignment_status(
     current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
 ) -> AssignmentOut:
     service = ConsultantService(db)
+    assign_service = AssignmentService(db)
     try:
         updated = service.update_status(
             assignment_id=assignment_id,
@@ -73,7 +89,7 @@ def update_assignment_status(
             comment=payload.comment.strip(),
             consultant_user=current_user,
         )
-        return AssignmentOut.model_validate(updated)
+        return assign_service.enrich_assignments([updated])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -86,6 +102,7 @@ def add_resolution_note(
     current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
 ) -> AssignmentOut:
     service = ConsultantService(db)
+    assign_service = AssignmentService(db)
     try:
         updated = service.add_resolution_note(
             assignment_id=assignment_id,
@@ -93,7 +110,7 @@ def add_resolution_note(
             comment=payload.comment.strip(),
             consultant_user=current_user,
         )
-        return AssignmentOut.model_validate(updated)
+        return assign_service.enrich_assignments([updated])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -127,6 +144,7 @@ def transfer_assignment(
     current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
 ) -> AssignmentOut:
     service = ConsultantService(db)
+    assign_service = AssignmentService(db)
     try:
         new_assignment = service.transfer_assignment(
             assignment_id=assignment_id,
@@ -134,6 +152,6 @@ def transfer_assignment(
             comment=payload.comment.strip(),
             consultant_user=current_user,
         )
-        return AssignmentOut.model_validate(new_assignment)
+        return assign_service.enrich_assignments([new_assignment])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

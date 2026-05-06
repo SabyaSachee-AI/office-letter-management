@@ -1,9 +1,11 @@
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.letter import LetterStatus
 from app.models.user import User
 from app.rbac.guards import require_roles, require_screen
 from app.rbac.roles import Roles
@@ -42,10 +44,25 @@ def approval_queue(
     ],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    status: LetterStatus | None = Query(default=None),
+    department_id: int | None = Query(default=None),
+    from_office: str | None = Query(default=None, max_length=255),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     q: str | None = Query(default=None),
 ) -> ApprovalQueueResponse:
     service = WorkflowService(db)
-    items, total = service.get_approval_queue(current_user, limit, offset, q=q)
+    items, total = service.get_approval_queue(
+        current_user,
+        limit,
+        offset,
+        status=status,
+        department_id=department_id,
+        from_office=(from_office.strip() or None) if from_office is not None else None,
+        date_from=date_from,
+        date_to=date_to,
+        q=(q.strip() or None) if q is not None else None,
+    )
     return ApprovalQueueResponse(items=items, total=total, limit=limit, offset=offset)
 
 
@@ -65,13 +82,22 @@ def approve_letter(
 ) -> LetterOut:
     service = WorkflowService(db)
     try:
-        letter = service.approve(letter_id, payload.comment.strip(), current_user)
+        letter = service.approve(
+            letter_id,
+            payload.comment.strip(),
+            current_user,
+            target_department_id=payload.target_department_id,
+            priority=payload.priority,
+        )
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="letter_approved",
             resource_type="letter",
             resource_id=letter_id,
-            detail=None,
+            detail={
+                "target_department_id": payload.target_department_id,
+                "priority": payload.priority.value if payload.priority is not None else None,
+            },
         )
         db.commit()
         return LetterOut.model_validate(letter)

@@ -44,7 +44,9 @@ class Letter(Base):
         default=LetterStatus.RECEIVED,
         index=True,
     )
-    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), nullable=False, index=True)
+    department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("departments.id"), nullable=True, index=True
+    )
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
