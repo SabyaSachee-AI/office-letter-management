@@ -7,10 +7,12 @@ import { ErrorBanner } from "@/components/data/error-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { PaginationBar } from "@/components/data/pagination-bar";
 import { FilterSelect } from "@/components/forms/filter-select";
+import { Input } from "@/components/ui/input";
 import { LettersTable } from "@/components/letters/letters-table";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/auth-context";
+import { expandAllowedScreensKeys } from "@/config/navigation";
 import { isAdmin } from "@/lib/auth/roles";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { fetchDepartments } from "@/lib/api/users";
@@ -32,7 +34,11 @@ const STATUS_OPTS = [
 export function LettersListPage() {
   const { user } = useAuth();
   const admin = isAdmin(user);
+  const canReceiveLetter = expandAllowedScreensKeys(user?.allowed_screens ?? []).has(
+    "letters:create"
+  );
   const [status, setStatus] = useState("");
+  const [searchQ, setSearchQ] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
   const [departments, setDepartments] = useState<DepartmentOut[]>([]);
   const [page, setPage] = useState(0);
@@ -58,6 +64,7 @@ export function LettersListPage() {
           offset: page * PAGE,
           status: status || undefined,
           department_id: departmentId,
+          q: searchQ.trim() || undefined,
         }),
       ]);
       if (admin) setDepartments(deptRows);
@@ -70,7 +77,7 @@ export function LettersListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, status, departmentId, admin]);
+  }, [page, status, departmentId, admin, searchQ]);
 
   useEffect(() => {
     void load();
@@ -82,18 +89,33 @@ export function LettersListPage() {
         title="Letters"
         description="Browse registered letters. Filters respect your department unless you are an administrator."
         actions={
-          <Link
-            href="/dashboard/letters/receive"
-            className={cn(buttonVariants({ size: "sm" }))}
-          >
-            Receive letter
-          </Link>
+          canReceiveLetter ? (
+            <Link
+              href="/dashboard/letters/receive"
+              className={cn(buttonVariants({ size: "sm" }))}
+            >
+              Receive letter
+            </Link>
+          ) : null
         }
       />
 
       {listError ? <ErrorBanner message={listError} /> : null}
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200/80 bg-slate-50/90 p-3 shadow-sm sm:p-4">
+        <div className="grid min-w-[min(100%,16rem)] flex-1 gap-1.5 sm:min-w-[12rem]">
+          <span className="text-muted-foreground text-xs font-medium">Search</span>
+          <Input
+            aria-label="Search letters"
+            placeholder="Serial, memo no., subject…"
+            value={searchQ}
+            onChange={(e) => {
+              setSearchQ(e.target.value);
+              setPage(0);
+            }}
+            className="h-9"
+          />
+        </div>
         <div className="grid gap-1.5">
           <span className="text-muted-foreground text-xs font-medium">Status</span>
           <FilterSelect

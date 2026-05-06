@@ -7,11 +7,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.activity import AuditLog, LoginLog
 from app.models.letter import Letter, LetterAssignment, LetterStatus
 from app.models.user import User
-from app.rbac.roles import Roles
+from app.rbac.roles import is_system_admin
 
 
 def _is_admin(user: User) -> bool:
-    return any(r.name == Roles.ADMIN for r in user.roles)
+    return is_system_admin(user)
 
 
 @dataclass

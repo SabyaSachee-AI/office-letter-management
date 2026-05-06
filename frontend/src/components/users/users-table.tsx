@@ -32,6 +32,9 @@ export function UsersTable({
         <div className="flex flex-col">
           <span className="font-medium">{u.full_name}</span>
           <span className="text-muted-foreground text-xs">{u.email}</span>
+          {u.username ? (
+            <span className="text-muted-foreground text-xs">@{u.username}</span>
+          ) : null}
         </div>
       ),
     },

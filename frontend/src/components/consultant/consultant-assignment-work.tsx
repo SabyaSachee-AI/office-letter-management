@@ -96,7 +96,8 @@ export function ConsultantAssignmentWork({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">
-          {row.serial_no} — {row.subject}
+          {row.serial_no}
+          {row.memo_no?.trim() ? ` · Memo: ${row.memo_no}` : ""} — {row.subject}
         </CardTitle>
         <p className="text-muted-foreground text-xs">
           Deadline: {new Date(row.deadline_at).toLocaleString()} · Assignment #

@@ -14,10 +14,19 @@ from app.schemas.user import RoleOut
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
-AdminManager = Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))
+SystemAdminRoles = Depends(require_roles(Roles.SYSTEM_ADMIN))
+DepartmentReferenceReader = Depends(
+    require_roles(
+        Roles.SYSTEM_ADMIN,
+        Roles.RECEIVING_OFFICER,
+        Roles.APPROVAL_HEAD,
+        Roles.TEAM_LEADER,
+        Roles.CONSULTANT,
+    )
+)
 
 
-@router.get("/roles", response_model=list[RoleOut], dependencies=[AdminManager])
+@router.get("/roles", response_model=list[RoleOut], dependencies=[SystemAdminRoles])
 def list_roles(
     db: Annotated[Session, Depends(get_db)],
     q: str | None = Query(default=None),
@@ -27,11 +36,15 @@ def list_roles(
     stmt = select(Role)
     if q:
         stmt = stmt.where(Role.name.ilike(f"%{q.strip()}%"))
-    rows = list(db.scalars(stmt.order_by(Role.name.asc()).limit(limit).offset(offset)).all())
+    rows = list(
+        db.scalars(
+            stmt.order_by(Role.sort_order.asc(), Role.name.asc()).limit(limit).offset(offset)
+        ).all()
+    )
     return [RoleOut.model_validate(r) for r in rows]
 
 
-@router.get("/departments", response_model=list[DepartmentOut], dependencies=[AdminManager])
+@router.get("/departments", response_model=list[DepartmentOut], dependencies=[DepartmentReferenceReader])
 def list_departments(
     db: Annotated[Session, Depends(get_db)],
     q: str | None = Query(default=None),
@@ -41,8 +54,12 @@ def list_departments(
     stmt = select(Department)
     if q:
         qv = f"%{q.strip()}%"
-        stmt = stmt.where(
-            (Department.name.ilike(qv)) | (Department.code.ilike(qv))
-        )
-    rows = list(db.scalars(stmt.order_by(Department.name.asc()).limit(limit).offset(offset)).all())
+        stmt = stmt.where((Department.name.ilike(qv)) | (Department.code.ilike(qv)))
+    rows = list(
+        db.scalars(
+            stmt.order_by(Department.sort_order.asc(), Department.name.asc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+    )
     return [DepartmentOut.model_validate(r) for r in rows]

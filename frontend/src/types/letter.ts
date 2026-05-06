@@ -13,6 +13,7 @@ export type LetterStatus =
 export type LetterOut = {
   id: number;
   serial_no: string;
+  memo_no?: string | null;
   subject: string;
   received_from: string;
   pdf_path: string;
@@ -35,6 +36,7 @@ export type LetterListResponse = {
 export type ApprovalQueueItem = {
   id: number;
   serial_no: string;
+  memo_no?: string | null;
   subject: string;
   received_from: string;
   status: LetterStatus;
@@ -99,6 +101,7 @@ export type ConsultantAssignmentRow = {
   assignment: AssignmentOut;
   letter_id: number;
   serial_no: string;
+  memo_no?: string | null;
   subject: string;
   received_from: string;
   deadline_at: string;

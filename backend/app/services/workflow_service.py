@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.department import Department
 from app.models.letter import Letter, LetterAction, LetterActionType, LetterStatus
 from app.models.user import User
-from app.rbac.roles import Roles
+from app.rbac.roles import is_system_admin
 
 
 class WorkflowService:
@@ -13,7 +13,7 @@ class WorkflowService:
 
     @staticmethod
     def _is_admin(user: User) -> bool:
-        return any(role.name == Roles.ADMIN for role in user.roles)
+        return is_system_admin(user)
 
     def _get_letter_for_department(self, letter_id: int, user: User) -> Letter:
         letter = self.db.scalar(
@@ -73,6 +73,7 @@ class WorkflowService:
             qv = f"%{q.strip()}%"
             search_filter = or_(
                 Letter.serial_no.ilike(qv),
+                Letter.memo_no.ilike(qv),
                 Letter.subject.ilike(qv),
                 Letter.received_from.ilike(qv),
             )

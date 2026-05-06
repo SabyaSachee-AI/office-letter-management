@@ -94,11 +94,11 @@ export default function LoginPage() {
             ) : null}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-cyan-50/95">
-                Email
+                Email or username
               </Label>
               <Input
                 id="email"
-                type="email"
+                type="text"
                 autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

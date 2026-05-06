@@ -76,6 +76,8 @@ class LetterService:
         priority: LetterPriority,
         file: UploadFile,
         created_by: User,
+        *,
+        memo_no: str | None = None,
     ) -> Letter:
         assert_user_can_create_in_department(created_by, department_id)
         department = self.db.get(Department, department_id)
@@ -87,6 +89,7 @@ class LetterService:
 
         letter = Letter(
             serial_no=serial_no,
+            memo_no=memo_no,
             subject=subject,
             received_from=received_from,
             department_id=department_id,
@@ -141,6 +144,7 @@ class LetterService:
             qv = f"%{q.strip()}%"
             search_filter = or_(
                 Letter.serial_no.ilike(qv),
+                Letter.memo_no.ilike(qv),
                 Letter.subject.ilike(qv),
                 Letter.received_from.ilike(qv),
             )

@@ -1,15 +1,20 @@
+import mimetypes
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.letter import LetterPriority, LetterStatus
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_any_screen, require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.closure import ClosureHistoryOut, closure_history_out_from_letter
 from app.schemas.letter import LetterListResponse, LetterOut
+from app.core.config import settings
 from app.core.letter_access import is_admin
 from app.services.activity_service import ActivityService
 from app.services.closure_service import ClosureService
@@ -17,7 +22,7 @@ from app.services.letter_service import LetterService
 
 router = APIRouter(prefix="/letters", tags=["letters"])
 
-CreateLetterRoles = Depends(
+ListLetterRoles = Depends(
     require_roles(
         Roles.ADMIN,
         Roles.RECEIVING_OFFICER,
@@ -26,7 +31,7 @@ CreateLetterRoles = Depends(
     )
 )
 
-ViewLetterRoles = Depends(
+ReadLetterRoles = Depends(
     require_roles(
         Roles.ADMIN,
         Roles.RECEIVING_OFFICER,
@@ -37,17 +42,24 @@ ViewLetterRoles = Depends(
 )
 
 
-@router.post("", response_model=LetterOut, status_code=status.HTTP_201_CREATED, dependencies=[CreateLetterRoles])
+@router.post(
+    "",
+    response_model=LetterOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_screen(ScreenKey.LETTERS_CREATE))],
+)
 def create_letter(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER))],
     subject: str = Form(..., min_length=1, max_length=255),
     received_from: str = Form(..., min_length=1, max_length=255),
     department_id: int = Form(...),
     priority: LetterPriority = Form(default=LetterPriority.NORMAL),
+    memo_no: str | None = Form(default=None, max_length=160),
     file: UploadFile = File(...),
 ) -> LetterOut:
     service = LetterService(db)
+    memo = (memo_no or "").strip() or None
     try:
         letter = service.create_letter(
             subject=subject.strip(),
@@ -56,6 +68,7 @@ def create_letter(
             priority=priority,
             file=file,
             created_by=current_user,
+            memo_no=memo,
         )
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
@@ -70,7 +83,11 @@ def create_letter(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("", response_model=LetterListResponse, dependencies=[ViewLetterRoles])
+@router.get(
+    "",
+    response_model=LetterListResponse,
+    dependencies=[Depends(require_screen(ScreenKey.LETTERS_VIEW)), ListLetterRoles],
+)
 def list_letters(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -81,7 +98,6 @@ def list_letters(
                 Roles.RECEIVING_OFFICER,
                 Roles.APPROVAL_HEAD,
                 Roles.TEAM_LEADER,
-                Roles.CONSULTANT,
             )
         ),
     ],
@@ -120,10 +136,15 @@ def list_letters(
     )
 
 
+LetterReadScreen = Depends(
+    require_any_screen(ScreenKey.LETTERS_VIEW, ScreenKey.CONSULTANT)
+)
+
+
 @router.get(
     "/{letter_id}/action-history",
     response_model=ClosureHistoryOut,
-    dependencies=[ViewLetterRoles],
+    dependencies=[LetterReadScreen, ReadLetterRoles],
 )
 def letter_action_history(
     letter_id: int,
@@ -163,7 +184,55 @@ def letter_action_history(
     return closure_history_out_from_letter(letter)
 
 
-@router.get("/{letter_id}", response_model=LetterOut, dependencies=[ViewLetterRoles])
+@router.get(
+    "/{letter_id}/attachment",
+    dependencies=[LetterReadScreen, ReadLetterRoles],
+)
+def get_letter_attachment(
+    letter_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(
+            require_roles(
+                Roles.ADMIN,
+                Roles.RECEIVING_OFFICER,
+                Roles.APPROVAL_HEAD,
+                Roles.TEAM_LEADER,
+                Roles.CONSULTANT,
+            )
+        ),
+    ],
+) -> FileResponse:
+    """Stream the stored letter attachment file (auth + same visibility as letter detail)."""
+    service = LetterService(db)
+    try:
+        letter = service.get_letter_for_user(letter_id, current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    raw_path = Path(letter.pdf_path)
+    resolved = raw_path if raw_path.is_absolute() else (Path.cwd() / raw_path).resolve()
+    upload_root = Path(settings.letter_upload_dir).resolve()
+    try:
+        resolved.relative_to(upload_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attachment path is invalid",
+        ) from exc
+    if not resolved.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+
+    media_type, _ = mimetypes.guess_type(resolved.name)
+    return FileResponse(
+        path=resolved,
+        media_type=media_type or "application/octet-stream",
+        filename=resolved.name,
+    )
+
+
+@router.get("/{letter_id}", response_model=LetterOut, dependencies=[LetterReadScreen, ReadLetterRoles])
 def get_letter(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],

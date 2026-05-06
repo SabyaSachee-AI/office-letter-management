@@ -2,8 +2,15 @@ import axios from "axios";
 
 import { clearToken, getToken } from "@/lib/auth/token";
 
+/**
+ * If `NEXT_PUBLIC_API_URL` is set (non-empty), the browser calls the API directly (cross-origin; backend CORS must allow your UI origin).
+ * If unset or empty, requests use the same origin as the Next.js app and `next.config.ts` rewrites `/api/v1/*` to the backend (recommended local dev).
+ */
+const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
 const baseURL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+  configured && configured.length > 0
+    ? configured.replace(/\/$/, "")
+    : "";
 
 export const api = axios.create({
   baseURL,

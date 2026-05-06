@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.models.user import UserStatus
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_roles, require_screen
 from app.rbac.roles import ALL_ROLES, Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.user import (
     DepartmentAssignment,
     RoleAssignment,
@@ -19,19 +20,89 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services.activity_service import ActivityService
+from app.services.permission_service import PermissionService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-AdminOnly = Depends(require_roles(Roles.ADMIN))
-AdminManager = Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))
+SystemAdminOnly = Depends(require_roles(Roles.SYSTEM_ADMIN))
+UsersScreen = Depends(require_screen(ScreenKey.USERS))
 
 
-@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED, dependencies=[AdminOnly])
+def _user_out(db: Session, user: User, *, with_screens: bool) -> UserOut:
+    base = UserOut.model_validate(user)
+    if not with_screens:
+        return base
+    screens = PermissionService(db).allowed_screens_for_user(user)
+    return base.model_copy(update={"allowed_screens": screens})
+
+
+@router.get("/me", response_model=UserOut)
+def me(
+    current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserOut:
+    u = UserService(db).get_user(current_user.id)
+    return _user_out(db, u, with_screens=True)
+
+
+@router.get(
+    "/consultants",
+    response_model=UserListResponse,
+    dependencies=[
+        Depends(require_screen(ScreenKey.ASSIGNMENT)),
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER)),
+    ],
+)
+def list_consultants_for_assignment(
+    db: Annotated[Session, Depends(get_db)],
+    department_id: int = Query(..., ge=1),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> UserListResponse:
+    service = UserService(db)
+    users = service.list_consultants_for_assignment(department_id=department_id, q=q, limit=limit)
+    return UserListResponse(
+        items=[_user_out(db, u, with_screens=False) for u in users],
+        total=len(users),
+        limit=limit,
+        offset=0,
+    )
+
+
+@router.get(
+    "/team-leaders",
+    response_model=UserListResponse,
+    dependencies=[UsersScreen, SystemAdminOnly],
+)
+def list_team_leaders(
+    db: Annotated[Session, Depends(get_db)],
+    department_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=200, ge=1, le=200),
+) -> UserListResponse:
+    service = UserService(db)
+    users = service.list_team_leaders_for_consultant_form(
+        department_id=department_id,
+        limit=limit,
+    )
+    return UserListResponse(
+        items=[_user_out(db, u, with_screens=False) for u in users],
+        total=len(users),
+        limit=limit,
+        offset=0,
+    )
+
+
+@router.post(
+    "",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[UsersScreen, SystemAdminOnly],
+)
 def create_user(
     payload: UserCreate,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> UserOut:
     service = UserService(db)
     try:
@@ -44,12 +115,12 @@ def create_user(
             detail={"email": user.email},
         )
         db.commit()
-        return UserOut.model_validate(user)
+        return _user_out(db, user, with_screens=False)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("", response_model=UserListResponse, dependencies=[AdminManager])
+@router.get("", response_model=UserListResponse, dependencies=[UsersScreen, SystemAdminOnly])
 def list_users(
     db: Annotated[Session, Depends(get_db)],
     q: str | None = Query(default=None),
@@ -67,23 +138,22 @@ def list_users(
         limit=limit,
         offset=offset,
     )
-
     service = UserService(db)
     users, total = service.list_users(params)
     return UserListResponse(
-        items=[UserOut.model_validate(user) for user in users],
+        items=[_user_out(db, u, with_screens=False) for u in users],
         total=total,
         limit=params.limit,
         offset=params.offset,
     )
 
 
-@router.put("/{user_id}", response_model=UserOut, dependencies=[AdminOnly])
+@router.put("/{user_id}", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
 def update_user(
     user_id: int,
     payload: UserUpdate,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> UserOut:
     service = UserService(db)
     try:
@@ -96,17 +166,17 @@ def update_user(
             detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
         )
         db.commit()
-        return UserOut.model_validate(user)
+        return _user_out(db, user, with_screens=False)
     except ValueError as exc:
         status_code = status.HTTP_404_NOT_FOUND if str(exc) == "User not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[AdminOnly])
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[UsersScreen, SystemAdminOnly])
 def delete_user(
     user_id: int,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> None:
     service = UserService(db)
     try:
@@ -123,12 +193,12 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/roles", response_model=UserOut, dependencies=[AdminOnly])
+@router.patch("/{user_id}/roles", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
 def assign_roles(
     user_id: int,
     payload: RoleAssignment,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> UserOut:
     service = UserService(db)
     try:
@@ -141,18 +211,18 @@ def assign_roles(
             detail={"role_ids": payload.role_ids},
         )
         db.commit()
-        return UserOut.model_validate(user)
+        return _user_out(db, user, with_screens=False)
     except ValueError as exc:
         status_code = status.HTTP_404_NOT_FOUND if str(exc) == "User not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/department", response_model=UserOut, dependencies=[AdminOnly])
+@router.patch("/{user_id}/department", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
 def assign_department(
     user_id: int,
     payload: DepartmentAssignment,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> UserOut:
     service = UserService(db)
     try:
@@ -165,18 +235,18 @@ def assign_department(
             detail={"department_id": payload.department_id},
         )
         db.commit()
-        return UserOut.model_validate(user)
+        return _user_out(db, user, with_screens=False)
     except ValueError as exc:
         status_code = status.HTTP_404_NOT_FOUND if str(exc) == "User not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/status", response_model=UserOut, dependencies=[AdminOnly])
+@router.patch("/{user_id}/status", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
 def update_status(
     user_id: int,
     payload: StatusUpdate,
     db: Annotated[Session, Depends(get_db)],
-    actor: Annotated[User, Depends(require_roles(Roles.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(Roles.SYSTEM_ADMIN))],
 ) -> UserOut:
     service = UserService(db)
     try:
@@ -189,12 +259,7 @@ def update_status(
             detail={"status": payload.status.value},
         )
         db.commit()
-        return UserOut.model_validate(user)
+        return _user_out(db, user, with_screens=False)
     except ValueError as exc:
         status_code = status.HTTP_404_NOT_FOUND if str(exc) == "User not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-
-
-@router.get("/me", response_model=UserOut)
-def me(current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))]) -> UserOut:
-    return UserOut.model_validate(current_user)

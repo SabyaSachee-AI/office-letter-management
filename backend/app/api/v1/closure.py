@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_any_screen, require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.closure import (
     CloseIssueIn,
     ClosureHistoryOut,
@@ -28,12 +29,16 @@ def _map_closure_value_error(exc: ValueError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
 
-@router.post("/letters/{letter_id}/review-solution", response_model=LetterOut)
+@router.post(
+    "/letters/{letter_id}/review-solution",
+    response_model=LetterOut,
+    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+)
 def review_solution(
     letter_id: int,
     payload: ReviewSolutionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -51,12 +56,16 @@ def review_solution(
         raise _map_closure_value_error(exc) from exc
 
 
-@router.post("/letters/{letter_id}/final-comment", response_model=LetterOut)
+@router.post(
+    "/letters/{letter_id}/final-comment",
+    response_model=LetterOut,
+    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+)
 def add_final_comment(
     letter_id: int,
     payload: FinalCommentIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -74,12 +83,16 @@ def add_final_comment(
         raise _map_closure_value_error(exc) from exc
 
 
-@router.post("/letters/{letter_id}/close", response_model=LetterOut)
+@router.post(
+    "/letters/{letter_id}/close",
+    response_model=LetterOut,
+    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+)
 def close_issue(
     letter_id: int,
     payload: CloseIssueIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -97,7 +110,20 @@ def close_issue(
         raise _map_closure_value_error(exc) from exc
 
 
-@router.get("/letters/{letter_id}/history", response_model=ClosureHistoryOut)
+@router.get(
+    "/letters/{letter_id}/history",
+    response_model=ClosureHistoryOut,
+    dependencies=[
+        Depends(
+            require_any_screen(
+                ScreenKey.CLOSURE,
+                ScreenKey.LETTERS_VIEW,
+                ScreenKey.CONSULTANT,
+                ScreenKey.APPROVAL,
+            )
+        )
+    ],
+)
 def closure_history(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],

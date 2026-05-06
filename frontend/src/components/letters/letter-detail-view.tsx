@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { LetterAttachmentPreviewButton } from "@/components/attachments/letter-attachment-preview-button";
 import { AssignConsultantDialog } from "@/components/assignments/assign-consultant-dialog";
 import { ErrorBanner } from "@/components/data/error-banner";
 import { ActionHistoryCard } from "@/components/letters/action-history-list";
@@ -20,6 +21,7 @@ import {
   canClosure,
   hasRole,
 } from "@/lib/auth/roles";
+import { basenamePath } from "@/lib/attachments";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { getAssignmentTracking } from "@/lib/api/assignments";
 import { getLetter, getLetterActionHistory } from "@/lib/api/letters";
@@ -136,6 +138,12 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
           <CardTitle className="text-base">Summary</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground grid gap-2 text-sm sm:grid-cols-2">
+          {letter.memo_no?.trim() ? (
+            <div className="sm:col-span-2">
+              <span className="text-foreground font-medium">Memo No / স্মারক নং: </span>
+              {letter.memo_no}
+            </div>
+          ) : null}
           <div>
             <span className="text-foreground font-medium">From: </span>
             {letter.received_from}
@@ -149,9 +157,16 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
             <LetterStatusBadge status={letter.status} />
             <LetterPriorityBadge priority={letter.priority} />
           </div>
-          <div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <span className="text-foreground font-medium">Attachment: </span>
-            <span className="font-mono text-xs break-all">{letter.pdf_path}</span>
+            <span className="font-mono text-xs break-all">
+              {basenamePath(letter.pdf_path)}
+            </span>
+            <LetterAttachmentPreviewButton
+              letterId={letter.id}
+              filePathHint={letter.pdf_path}
+              label="View"
+            />
           </div>
         </CardContent>
       </Card>

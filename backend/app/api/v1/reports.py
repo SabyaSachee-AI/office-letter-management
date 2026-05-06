@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.letter import LetterStatus
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.report import AnalyticsOut
 from app.services.export_service import build_letters_pdf, build_letters_xlsx, letter_row_from_model
 from app.services.report_service import ReportFilters, ReportsService
@@ -35,7 +36,11 @@ def _parse_filters(
     )
 
 
-@router.get("/analytics", response_model=AnalyticsOut)
+@router.get(
+    "/analytics",
+    response_model=AnalyticsOut,
+    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+)
 def reports_analytics(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER, Roles.CONSULTANT))],
@@ -52,7 +57,10 @@ def reports_analytics(
     return AnalyticsOut.model_validate(data)
 
 
-@router.get("/export/letters.pdf")
+@router.get(
+    "/export/letters.pdf",
+    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+)
 def export_letters_pdf(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER, Roles.CONSULTANT))],
@@ -78,7 +86,10 @@ def export_letters_pdf(
     )
 
 
-@router.get("/export/letters.xlsx")
+@router.get(
+    "/export/letters.xlsx",
+    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+)
 def export_letters_xlsx(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.RECEIVING_OFFICER, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER, Roles.CONSULTANT))],

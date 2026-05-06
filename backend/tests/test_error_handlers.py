@@ -21,3 +21,9 @@ def test_http_error_envelope():
     assert body.get("code") == "unauthorized"
     assert isinstance(body.get("message"), str)
     assert body["message"] == body["detail"]
+
+
+def test_letter_attachment_requires_auth():
+    client = TestClient(app)
+    r = client.get("/api/v1/letters/1/attachment")
+    assert r.status_code == 401

@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -27,8 +27,8 @@ def login(
     ip = client_ip(request)
     ua = client_user_agent(request)
     acts = ActivityService(db)
-    email = (form_data.username or "").strip()
-    if len(email) > 255:
+    login_id = (form_data.username or "").strip()
+    if len(login_id) > 255:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid credentials",
@@ -39,10 +39,12 @@ def login(
             detail="Invalid credentials",
         )
 
-    user = db.scalar(select(User).where(User.email == email))
+    user = db.scalar(
+        select(User).where(or_(User.email == login_id, User.username == login_id))
+    )
     if user is None or not verify_password(form_data.password, user.password_hash):
         acts.record_login(
-            email_attempted=email or form_data.username,
+            email_attempted=login_id or form_data.username,
             user_id=None,
             success=False,
             ip_address=ip,
@@ -52,11 +54,11 @@ def login(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect email, username, or password",
         )
     if user.status != UserStatus.ACTIVE:
         acts.record_login(
-            email_attempted=email,
+            email_attempted=user.email,
             user_id=user.id,
             success=False,
             ip_address=ip,
@@ -67,7 +69,7 @@ def login(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
 
     acts.record_login(
-        email_attempted=email,
+        email_attempted=user.email,
         user_id=user.id,
         success=True,
         ip_address=ip,

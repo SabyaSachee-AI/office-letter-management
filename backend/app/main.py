@@ -17,6 +17,7 @@ from app.models.letter import LetterAction  # noqa: F401
 from app.models.letter import LetterAssignment  # noqa: F401
 from app.models.letter import AssignmentSolutionFile  # noqa: F401
 from app.models.role import Role  # noqa: F401
+from app.models.role_screen_permission import RoleScreenPermission  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 

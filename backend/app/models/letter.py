@@ -29,6 +29,7 @@ class Letter(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     serial_no: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    memo_no: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     received_from: Mapped[str] = mapped_column(String(255), nullable=False)
     pdf_path: Mapped[str] = mapped_column(String(500), nullable=False)

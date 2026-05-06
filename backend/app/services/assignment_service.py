@@ -7,7 +7,7 @@ from app.core.letter_access import assert_assigning_user_can_access_letter, can_
 from app.models.activity import NotificationKind
 from app.models.letter import Letter, LetterAction, LetterActionType, LetterAssignment, LetterStatus
 from app.models.user import User
-from app.rbac.roles import Roles
+from app.rbac.roles import Roles, has_role_name
 from app.services.activity_service import ActivityService
 
 
@@ -17,7 +17,7 @@ class AssignmentService:
 
     @staticmethod
     def _has_role(user: User, role_name: str) -> bool:
-        return any(role.name == role_name for role in user.roles)
+        return has_role_name(user, role_name)
 
     def _get_letter(self, letter_id: int) -> Letter:
         letter = self.db.get(Letter, letter_id)

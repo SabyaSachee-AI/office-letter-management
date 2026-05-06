@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.letter import LetterOut
 from app.schemas.workflow import ApprovalQueueResponse, RouteLetterIn, WorkflowActionIn
 from app.services.activity_service import ActivityService
@@ -14,20 +15,31 @@ from app.services.workflow_service import WorkflowService
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
-WorkflowRoles = Depends(
+ApprovalActors = Depends(
     require_roles(
-        Roles.ADMIN,
-        Roles.APPROVAL_HEAD,
-        Roles.TEAM_LEADER,
-        Roles.RECEIVING_OFFICER,
+        Roles.SYSTEM_ADMIN,
+        Roles.APPROVAL_HEAD_PEC,
     )
 )
+ApprovalScreen = Depends(require_screen(ScreenKey.APPROVAL))
 
 
-@router.get("/queue", response_model=ApprovalQueueResponse, dependencies=[WorkflowRoles])
+@router.get(
+    "/queue",
+    response_model=ApprovalQueueResponse,
+    dependencies=[ApprovalScreen, ApprovalActors],
+)
 def approval_queue(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER, Roles.RECEIVING_OFFICER))],
+    current_user: Annotated[
+        User,
+        Depends(
+            require_roles(
+                Roles.SYSTEM_ADMIN,
+                Roles.APPROVAL_HEAD_PEC,
+            )
+        ),
+    ],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None),
@@ -37,12 +49,19 @@ def approval_queue(
     return ApprovalQueueResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.post("/letters/{letter_id}/approve", response_model=LetterOut, dependencies=[WorkflowRoles])
+@router.post(
+    "/letters/{letter_id}/approve",
+    response_model=LetterOut,
+    dependencies=[ApprovalScreen, ApprovalActors],
+)
 def approve_letter(
     letter_id: int,
     payload: WorkflowActionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.APPROVAL_HEAD_PEC)),
+    ],
 ) -> LetterOut:
     service = WorkflowService(db)
     try:
@@ -60,12 +79,19 @@ def approve_letter(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/letters/{letter_id}/reject", response_model=LetterOut, dependencies=[WorkflowRoles])
+@router.post(
+    "/letters/{letter_id}/reject",
+    response_model=LetterOut,
+    dependencies=[ApprovalScreen, ApprovalActors],
+)
 def reject_letter(
     letter_id: int,
     payload: WorkflowActionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.APPROVAL_HEAD_PEC)),
+    ],
 ) -> LetterOut:
     service = WorkflowService(db)
     try:
@@ -83,12 +109,19 @@ def reject_letter(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/letters/{letter_id}/return", response_model=LetterOut, dependencies=[WorkflowRoles])
+@router.post(
+    "/letters/{letter_id}/return",
+    response_model=LetterOut,
+    dependencies=[ApprovalScreen, ApprovalActors],
+)
 def return_letter(
     letter_id: int,
     payload: WorkflowActionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.APPROVAL_HEAD_PEC)),
+    ],
 ) -> LetterOut:
     service = WorkflowService(db)
     try:
@@ -106,12 +139,19 @@ def return_letter(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/letters/{letter_id}/route", response_model=LetterOut, dependencies=[WorkflowRoles])
+@router.post(
+    "/letters/{letter_id}/route",
+    response_model=LetterOut,
+    dependencies=[ApprovalScreen, ApprovalActors],
+)
 def route_letter(
     letter_id: int,
     payload: RouteLetterIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER))],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.APPROVAL_HEAD_PEC)),
+    ],
 ) -> LetterOut:
     service = WorkflowService(db)
     try:

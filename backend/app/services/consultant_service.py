@@ -17,7 +17,7 @@ from app.models.letter import (
     LetterAssignment,
 )
 from app.models.user import User
-from app.rbac.roles import Roles
+from app.rbac.roles import Roles, has_role_name
 
 
 class ConsultantService:
@@ -28,7 +28,7 @@ class ConsultantService:
 
     @staticmethod
     def _has_role(user: User, role_name: str) -> bool:
-        return any(role.name == role_name for role in user.roles)
+        return has_role_name(user, role_name)
 
     def _get_assignment_for_consultant(self, assignment_id: int, consultant_user: User) -> LetterAssignment:
         assignment = self.db.scalar(
@@ -78,6 +78,7 @@ class ConsultantService:
             filters.append(
                 or_(
                     Letter.serial_no.ilike(qv),
+                    Letter.memo_no.ilike(qv),
                     Letter.subject.ilike(qv),
                     Letter.received_from.ilike(qv),
                 )

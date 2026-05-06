@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.letter import AssignmentWorkStatus
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.assignment import AssignmentOut
 from app.schemas.consultant import (
     ConsultantAssignedLetterListOut,
@@ -18,7 +19,11 @@ from app.schemas.consultant import (
 )
 from app.services.consultant_service import ConsultantService
 
-router = APIRouter(prefix="/consultant", tags=["consultant"])
+router = APIRouter(
+    prefix="/consultant",
+    tags=["consultant"],
+    dependencies=[Depends(require_screen(ScreenKey.CONSULTANT))],
+)
 
 
 @router.get("/assignments", response_model=ConsultantAssignedLetterListOut)
@@ -43,6 +48,7 @@ def my_assignments(
             assignment=AssignmentOut.model_validate(assignment),
             letter_id=letter.id,
             serial_no=letter.serial_no,
+            memo_no=letter.memo_no,
             subject=letter.subject,
             received_from=letter.received_from,
             deadline_at=assignment.deadline_at,

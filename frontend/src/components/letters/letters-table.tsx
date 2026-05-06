@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { LetterAttachmentPreviewButton } from "@/components/attachments/letter-attachment-preview-button";
 import { DataTable, type DataTableColumn } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/empty-state";
 import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/letter-badges";
@@ -35,6 +36,16 @@ export function LettersTable({
       ),
     },
     {
+      id: "memo_no",
+      header: "Memo No",
+      className: "max-w-[140px]",
+      cell: (l) => (
+        <span className="text-muted-foreground text-sm">
+          {l.memo_no?.trim() ? l.memo_no : "—"}
+        </span>
+      ),
+    },
+    {
       id: "subject",
       header: "Subject",
       cell: (l) => (
@@ -64,6 +75,21 @@ export function LettersTable({
       id: "status",
       header: "Status",
       cell: (l) => <LetterStatusBadge status={l.status} />,
+    },
+    {
+      id: "attachment",
+      header: "File",
+      className: "w-14 text-center",
+      cell: (l) => (
+        <LetterAttachmentPreviewButton
+          letterId={l.id}
+          filePathHint={l.pdf_path}
+          label=""
+          size="icon-sm"
+          variant="ghost"
+          className="text-[#123f63] hover:bg-slate-100"
+        />
+      ),
     },
   ];
 

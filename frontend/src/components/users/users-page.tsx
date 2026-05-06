@@ -135,7 +135,7 @@ export function UsersPage() {
     <div className="space-y-6">
       <PageHeader
         title="Users"
-        description="Search and manage accounts. Admins can create, edit, and delete users. Managers can browse the directory."
+        description="Search and manage accounts. System administrators with the Users screen can create, edit, and delete users."
         actions={
           admin ? (
             <Button type="button" onClick={openCreate}>

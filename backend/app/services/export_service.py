@@ -39,6 +39,7 @@ def build_letters_pdf(
     ]
     header = [
         "Serial",
+        "Memo No",
         "Subject",
         "Status",
         "Priority",
@@ -51,6 +52,7 @@ def build_letters_pdf(
         table_data.append(
             [
                 r.get("serial_no", ""),
+                r.get("memo_no", ""),
                 r.get("subject", "")[:80],
                 r.get("status", ""),
                 r.get("priority", ""),
@@ -92,6 +94,7 @@ def build_letters_xlsx(
     ws.append(
         [
             "Serial",
+            "Memo No",
             "Subject",
             "Status",
             "Priority",
@@ -105,6 +108,7 @@ def build_letters_xlsx(
         ws.append(
             [
                 r.get("serial_no", ""),
+                r.get("memo_no", ""),
                 r.get("subject", ""),
                 r.get("status", ""),
                 r.get("priority", ""),
@@ -124,8 +128,10 @@ def letter_row_from_model(letter) -> dict[str, str]:
     dept_name = ""
     if letter.department is not None:
         dept_name = getattr(letter.department, "name", "") or ""
+    memo = getattr(letter, "memo_no", None) or ""
     return {
         "serial_no": letter.serial_no,
+        "memo_no": memo,
         "subject": letter.subject or "",
         "status": letter.status.value if hasattr(letter.status, "value") else str(letter.status),
         "priority": letter.priority.value if hasattr(letter.priority, "value") else str(letter.priority),

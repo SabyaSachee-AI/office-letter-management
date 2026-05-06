@@ -12,7 +12,7 @@ import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/let
 import { WorkflowActionDialog, type WorkflowActionMode } from "@/components/workflow/workflow-action-dialog";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
-import { canWorkflowDecide } from "@/lib/auth/roles";
+import { canApprovalActions } from "@/lib/auth/roles";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { getApprovalQueue } from "@/lib/api/workflow";
 import { fetchDepartments } from "@/lib/api/users";
@@ -23,7 +23,7 @@ const PAGE = 20;
 
 export function ApprovalQueuePage() {
   const { user } = useAuth();
-  const decide = canWorkflowDecide(user);
+  const decide = canApprovalActions(user);
   const [page, setPage] = useState(0);
   const [items, setItems] = useState<ApprovalQueueItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -70,6 +70,15 @@ export function ApprovalQueuePage() {
         >
           {l.serial_no}
         </Link>
+      ),
+    },
+    {
+      id: "memo_no",
+      header: "Memo No",
+      cell: (l) => (
+        <span className="text-muted-foreground max-w-[120px] truncate text-sm">
+          {l.memo_no?.trim() ? l.memo_no : "—"}
+        </span>
       ),
     },
     {

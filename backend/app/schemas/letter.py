@@ -9,6 +9,7 @@ from app.schemas.department import DepartmentOut
 class LetterOut(BaseModel):
     id: int
     serial_no: str
+    memo_no: str | None = None
     subject: str
     received_from: str
     pdf_path: str

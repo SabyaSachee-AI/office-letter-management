@@ -53,6 +53,24 @@ export async function listUsers(
   return data;
 }
 
+/** Active Team Leaders for Consultant reporting line (Users admin). */
+export async function listTeamLeaders(
+  departmentId?: number
+): Promise<UserOut[]> {
+  const { data } = await api.get<UserListResponse>(
+    "/api/v1/users/team-leaders",
+    {
+      params: {
+        ...(departmentId != null && departmentId >= 1
+          ? { department_id: departmentId }
+          : {}),
+        limit: 200,
+      },
+    }
+  );
+  return data.items;
+}
+
 export async function createUser(payload: UserCreatePayload): Promise<UserOut> {
   const { data } = await api.post<UserOut>("/api/v1/users", payload);
   return data;
@@ -68,4 +86,19 @@ export async function updateUser(
 
 export async function deleteUser(userId: number): Promise<void> {
   await api.delete(`/api/v1/users/${userId}`);
+}
+
+/** Team Leader / System Admin: consultants in a department for assignment (requires Assignment screen). */
+export async function listConsultantsForAssignment(
+  departmentId: number,
+  q?: string
+): Promise<UserOut[]> {
+  const { data } = await api.get<UserListResponse>("/api/v1/users/consultants", {
+    params: {
+      department_id: departmentId,
+      q: q || undefined,
+      limit: 100,
+    },
+  });
+  return data.items;
 }

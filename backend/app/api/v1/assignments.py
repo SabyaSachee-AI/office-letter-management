@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_roles
+from app.rbac.guards import require_any_screen, require_roles, require_screen
 from app.rbac.roles import Roles
+from app.rbac.screens import ScreenKey
 from app.schemas.assignment import (
     AssignmentOut,
     AssignmentTrackingOut,
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/assignments", tags=["assignments"])
     "/letters/{letter_id}/assign",
     response_model=AssignmentOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_screen(ScreenKey.ASSIGNMENT))],
 )
 def assign_consultant(
     letter_id: int,
@@ -81,7 +83,20 @@ def reassign_consultant(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("/letters/{letter_id}/tracking", response_model=AssignmentTrackingOut)
+@router.get(
+    "/letters/{letter_id}/tracking",
+    response_model=AssignmentTrackingOut,
+    dependencies=[
+        Depends(
+            require_any_screen(
+                ScreenKey.ASSIGNMENT,
+                ScreenKey.LETTERS_VIEW,
+                ScreenKey.CONSULTANT,
+                ScreenKey.APPROVAL,
+            )
+        )
+    ],
+)
 def assignment_tracking(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],

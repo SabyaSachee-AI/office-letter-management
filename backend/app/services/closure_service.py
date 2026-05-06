@@ -14,7 +14,7 @@ from app.models.letter import (
 from app.core.letter_access import can_view_letter
 from app.models.activity import NotificationKind
 from app.models.user import User
-from app.rbac.roles import Roles
+from app.rbac.roles import Roles, expand_role_names, is_system_admin, user_role_names
 from app.services.activity_service import ActivityService
 
 
@@ -24,23 +24,26 @@ class ClosureService:
 
     @staticmethod
     def _is_admin(user: User) -> bool:
-        return any(r.name == Roles.ADMIN for r in user.roles)
+        return is_system_admin(user)
 
     @staticmethod
     def _can_close_review(user: User) -> bool:
-        allowed = {Roles.ADMIN, Roles.APPROVAL_HEAD, Roles.TEAM_LEADER}
-        return any(r.name in allowed for r in user.roles)
+        if is_system_admin(user):
+            return True
+        allowed = expand_role_names(Roles.TEAM_LEADER)
+        return bool(user_role_names(user) & allowed)
 
     @staticmethod
     def _can_view_history(user: User) -> bool:
-        allowed = {
-            Roles.ADMIN,
-            Roles.APPROVAL_HEAD,
+        if is_system_admin(user):
+            return True
+        allowed = expand_role_names(
+            Roles.APPROVAL_HEAD_PEC,
             Roles.TEAM_LEADER,
             Roles.RECEIVING_OFFICER,
             Roles.CONSULTANT,
-        }
-        return any(r.name in allowed for r in user.roles)
+        )
+        return bool(user_role_names(user) & allowed)
 
     def _get_letter(self, letter_id: int, *, with_actions: bool = True) -> Letter:
         stmt = select(Letter).options(selectinload(Letter.department))

@@ -29,6 +29,7 @@ class LetterActionOut(BaseModel):
 class ApprovalQueueItemOut(BaseModel):
     id: int
     serial_no: str
+    memo_no: str | None = None
     subject: str
     received_from: str
     status: LetterStatus

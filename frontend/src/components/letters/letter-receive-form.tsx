@@ -1,13 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { FilePreviewDialog } from "@/components/attachments/file-preview-dialog";
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  formatFileSize,
+  previewKindFromFileName,
+} from "@/lib/attachments";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { createLetter } from "@/lib/api/letters";
 import type { DepartmentOut } from "@/types/user";
@@ -22,14 +27,40 @@ type LetterReceiveFormProps = {
 export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
   const router = useRouter();
   const [subject, setSubject] = useState("");
+  const [memoNo, setMemoNo] = useState("");
   const [receivedFrom, setReceivedFrom] = useState("");
   const [departmentId, setDepartmentId] = useState<string>(
     departments[0] ? String(departments[0].id) : ""
   );
   const [priority, setPriority] = useState("normal");
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
+
+  function clearFile() {
+    setFile(null);
+    const el = document.getElementById(
+      "letter-receive-file"
+    ) as HTMLInputElement | null;
+    if (el) el.value = "";
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +71,8 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
     }
     const fd = new FormData();
     fd.append("subject", subject.trim());
+    const memo = memoNo.trim();
+    if (memo) fd.append("memo_no", memo);
     fd.append("received_from", receivedFrom.trim());
     fd.append("department_id", departmentId);
     fd.append("priority", priority);
@@ -54,6 +87,8 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
       setPending(false);
     }
   }
+
+  const previewKind = file ? previewKindFromFileName(file.name) : "unknown";
 
   return (
     <Card className="max-w-xl">
@@ -78,6 +113,20 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
               onChange={(e) => setSubject(e.target.value)}
               required
               minLength={2}
+            />
+          </FormField>
+          <FormField
+            id="memo_no"
+            label="Memo No / স্মারক নং"
+            hint="Optional reference number."
+            error={null}
+          >
+            <Input
+              id="memo_no"
+              value={memoNo}
+              onChange={(e) => setMemoNo(e.target.value)}
+              maxLength={160}
+              autoComplete="off"
             />
           </FormField>
           <FormField id="received_from" label="Received from" error={null}>
@@ -120,14 +169,42 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
             </select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="file">Attachment</Label>
+            <Label htmlFor="letter-receive-file">Attachment</Label>
             <Input
-              id="file"
+              id="letter-receive-file"
               type="file"
               accept={ACCEPT}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               required
             />
+            {file ? (
+              <div className="bg-muted/40 flex flex-col gap-3 rounded-md border border-slate-200/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{file.name}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {formatFileSize(file.size)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPreviewOpen(true)}
+                  >
+                    View
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clearFile}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <p className="text-muted-foreground text-xs">
               Stored on the server under the letter record (path shown on the
               letter detail page).
@@ -147,6 +224,15 @@ export function LetterReceiveForm({ departments }: LetterReceiveFormProps) {
           </Button>
         </CardFooter>
       </form>
+
+      <FilePreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        title="Attachment preview"
+        fileName={file?.name ?? ""}
+        objectUrl={previewUrl}
+        kind={previewKind}
+      />
     </Card>
   );
 }

@@ -59,6 +59,9 @@ def _seed_users(session) -> tuple[int, dict[str, int]]:
     def add_user(email: str, full_name: str, role_names: tuple[str, ...]) -> User:
         u = User(
             email=email,
+            username=email.split("@")[0].replace(".", "_"),
+            nid=f"NID-{email}",
+            phone_number="+10000000000",
             full_name=full_name,
             password_hash=get_password_hash(PWD),
             status=UserStatus.ACTIVE,
@@ -156,8 +159,11 @@ def test_full_workflow_reports_and_exports(client):
         headers=_headers(admin_tok),
         json={
             "email": NEW_USER_EMAIL,
+            "username": "new_receiver",
             "full_name": "New Receiver",
             "password": PWD,
+            "nid": "NID-NEW-RECV",
+            "phone_number": "+8801710000000",
             "role_ids": [ro_id],
             "department_id": dept_id,
             "status": "active",
@@ -173,6 +179,7 @@ def test_full_workflow_reports_and_exports(client):
         "received_from": "External Party",
         "department_id": str(dept_id),
         "priority": "normal",
+        "memo_no": "  MEMO-E2E-001  ",
     }
     r_letter = c.post(
         "/api/v1/letters",
@@ -183,6 +190,15 @@ def test_full_workflow_reports_and_exports(client):
     assert r_letter.status_code == 201, r_letter.text
     letter_id = r_letter.json()["id"]
     assert r_letter.json()["status"] == "received"
+    assert r_letter.json()["memo_no"] == "MEMO-E2E-001"
+
+    r_find = c.get(
+        "/api/v1/letters",
+        headers=_headers(recv_tok),
+        params={"q": "MEMO-E2E-001", "limit": 20},
+    )
+    assert r_find.status_code == 200, r_find.text
+    assert any(row["id"] == letter_id for row in r_find.json()["items"])
 
     # 4. Approval Head approves
     appr_tok = _login(c, APPROVER_EMAIL)
@@ -196,8 +212,15 @@ def test_full_workflow_reports_and_exports(client):
 
     # 5. Team Leader assigns consultant
     leader_tok = _login(c, LEADER_EMAIL)
-    cons_row = c.get("/api/v1/users", headers=_headers(admin_tok), params={"q": CONSULT_EMAIL}).json()
-    consultant_id = next(u["id"] for u in cons_row["items"] if u["email"] == CONSULT_EMAIL)
+    r_pick = c.get(
+        "/api/v1/users/consultants",
+        headers=_headers(leader_tok),
+        params={"department_id": dept_id},
+    )
+    assert r_pick.status_code == 200, r_pick.text
+    consultant_id = next(
+        u["id"] for u in r_pick.json()["items"] if u["email"] == CONSULT_EMAIL
+    )
 
     deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
     r_asn = c.post(
@@ -241,18 +264,18 @@ def test_full_workflow_reports_and_exports(client):
     assert r_close.status_code == 200, r_close.text
     assert r_close.json()["status"] == "closed"
 
-    # 8. Reports and exports
-    r_an = c.get("/api/v1/reports/analytics", headers=_headers(leader_tok))
+    # 8. Reports and exports (Consultant role includes Reports in default matrix; TL does not)
+    r_an = c.get("/api/v1/reports/analytics", headers=_headers(cons_tok))
     assert r_an.status_code == 200, r_an.text
     body = r_an.json()
     assert "total_letters" in body or "letters_by_status" in body
 
-    r_pdf = c.get("/api/v1/reports/export/letters.pdf", headers=_headers(leader_tok))
+    r_pdf = c.get("/api/v1/reports/export/letters.pdf", headers=_headers(cons_tok))
     assert r_pdf.status_code == 200
     assert r_pdf.headers.get("content-type", "").startswith("application/pdf")
     assert len(r_pdf.content) > 100
 
-    r_xlsx = c.get("/api/v1/reports/export/letters.xlsx", headers=_headers(leader_tok))
+    r_xlsx = c.get("/api/v1/reports/export/letters.xlsx", headers=_headers(cons_tok))
     assert r_xlsx.status_code == 200
     assert "spreadsheet" in r_xlsx.headers.get("content-type", "") or r_xlsx.headers.get(
         "content-type", ""
