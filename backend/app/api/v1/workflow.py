@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.letter import LetterStatus
 from app.models.user import User
-from app.rbac.guards import require_roles, require_screen
+from app.rbac.guards import require_permission, require_roles
+from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
-from app.rbac.screens import ScreenKey
 from app.schemas.letter import LetterOut
 from app.schemas.workflow import ApprovalQueueResponse, RouteLetterIn, WorkflowActionIn
 from app.services.activity_service import ActivityService
@@ -23,13 +23,13 @@ ApprovalActors = Depends(
         Roles.APPROVAL_HEAD_PEC,
     )
 )
-ApprovalScreen = Depends(require_screen(ScreenKey.APPROVAL))
+ApprovalQueueAccess = Depends(require_permission(PermissionKey.APPROVAL_VIEW))
 
 
 @router.get(
     "/queue",
     response_model=ApprovalQueueResponse,
-    dependencies=[ApprovalScreen, ApprovalActors],
+    dependencies=[ApprovalQueueAccess, ApprovalActors],
 )
 def approval_queue(
     db: Annotated[Session, Depends(get_db)],
@@ -69,7 +69,10 @@ def approval_queue(
 @router.post(
     "/letters/{letter_id}/approve",
     response_model=LetterOut,
-    dependencies=[ApprovalScreen, ApprovalActors],
+    dependencies=[
+        Depends(require_permission(PermissionKey.APPROVAL_APPROVE)),
+        ApprovalActors,
+    ],
 )
 def approve_letter(
     letter_id: int,
@@ -108,7 +111,10 @@ def approve_letter(
 @router.post(
     "/letters/{letter_id}/reject",
     response_model=LetterOut,
-    dependencies=[ApprovalScreen, ApprovalActors],
+    dependencies=[
+        Depends(require_permission(PermissionKey.APPROVAL_REJECT)),
+        ApprovalActors,
+    ],
 )
 def reject_letter(
     letter_id: int,
@@ -138,7 +144,10 @@ def reject_letter(
 @router.post(
     "/letters/{letter_id}/return",
     response_model=LetterOut,
-    dependencies=[ApprovalScreen, ApprovalActors],
+    dependencies=[
+        Depends(require_permission(PermissionKey.APPROVAL_RETURN)),
+        ApprovalActors,
+    ],
 )
 def return_letter(
     letter_id: int,
@@ -168,7 +177,10 @@ def return_letter(
 @router.post(
     "/letters/{letter_id}/route",
     response_model=LetterOut,
-    dependencies=[ApprovalScreen, ApprovalActors],
+    dependencies=[
+        Depends(require_permission(PermissionKey.APPROVAL_ROUTE)),
+        ApprovalActors,
+    ],
 )
 def route_letter(
     letter_id: int,

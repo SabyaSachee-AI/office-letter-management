@@ -12,6 +12,7 @@ import { useAuth } from "@/context/auth-context";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { listMyAssignments } from "@/lib/api/consultant";
 import { workflowDepartmentId } from "@/lib/auth/roles";
+import { ASSIGNMENT_STATUS_FILTER_OPTIONS } from "@/lib/workflow-display";
 import type { ConsultantAssignmentRow } from "@/types/letter";
 
 const PAGE = 10;
@@ -36,18 +37,14 @@ export function ConsultantWorkPage() {
     setSearchQ(searchParams.get("q") ?? "");
     setFromOffice(searchParams.get("from_office") ?? "");
     const statusParam = searchParams.get("status") ?? "";
-    setWorkStatus(statusParam === "transferred" ? "" : statusParam);
+    setWorkStatus(statusParam);
     setDateFrom(searchParams.get("date_from") ?? "");
     setDateTo(searchParams.get("date_to") ?? "");
     setPage(Number(searchParams.get("page") ?? "0") || 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const STATUS_OPTS = [
-    { value: "assigned", label: "Assigned" },
-    { value: "in_progress", label: "In Progress" },
-    { value: "resolved", label: "Resolved" },
-  ];
+  const STATUS_OPTS = [...ASSIGNMENT_STATUS_FILTER_OPTIONS];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +59,7 @@ export function ConsultantWorkPage() {
           | "assigned"
           | "in_progress"
           | "resolved"
+          | "transferred"
           | undefined,
       });
       setItems(res.items);

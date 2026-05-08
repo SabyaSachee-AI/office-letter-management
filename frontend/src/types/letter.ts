@@ -24,6 +24,7 @@ export type LetterOut = {
   created_at: string;
   closed_at?: string | null;
   closed_by?: number | null;
+  latest_assignment?: AssignmentOut | null;
 };
 
 export type LetterListResponse = {
@@ -95,6 +96,8 @@ export type AssignmentOut = {
   is_active: boolean;
   work_status: AssignmentWorkStatus;
   resolution_note: string | null;
+  has_solution_file?: boolean;
+  latest_solution_file_uploaded_at?: string | null;
   assigned_at: string;
   updated_at: string;
   consultant_user?: AssignmentUserBrief | null;

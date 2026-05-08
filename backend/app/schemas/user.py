@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.user import UserStatus
@@ -9,8 +11,27 @@ class RoleOut(BaseModel):
     id: int
     name: str
     sort_order: int = 100
+    code: str
+    description: str | None = None
+    is_system_role: bool = False
+    is_active: bool = True
+    created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RoleCreateIn(BaseModel):
+    """Create a custom (non-system) role. System roles cannot be created via API."""
+
+    name: str = Field(min_length=2, max_length=80)
+    code: str | None = Field(
+        default=None,
+        max_length=40,
+        description="Uppercase slug; auto-derived from name when omitted.",
+    )
+    description: str | None = Field(default=None, max_length=500)
+    clone_from_role_id: int | None = Field(default=None, ge=1)
+    is_active: bool = True
 
 
 class UserOut(BaseModel):
@@ -121,6 +142,7 @@ class RoleSeedIn(BaseModel):
 class ScreenColumnOut(BaseModel):
     key: str
     label: str
+    group: str | None = None
 
 
 class RolePermissionMatrixOut(BaseModel):
@@ -130,6 +152,19 @@ class RolePermissionMatrixOut(BaseModel):
 
 
 class RolePermissionMatrixUpdate(BaseModel):
-    """JSON object: role id (string key) -> list of screen_key strings."""
+    """JSON object: role id (string key) -> list of permission / screen key strings.
+
+    Accepts granular keys (e.g. ``letters:view``, ``closure:close``) and legacy module
+    tokens (e.g. ``approval``, ``letters``) which the service expands when persisting.
+    """
 
     grants: dict[str, list[str]]
+
+    @field_validator("grants")
+    @classmethod
+    def validate_grant_keys(cls, v: dict[str, list[str]]) -> dict[str, list[str]]:
+        for rid, screens in v.items():
+            for s in screens:
+                if len(s) > 64:
+                    raise ValueError(f"Permission key exceeds 64 characters (role {rid})")
+        return v

@@ -5,6 +5,8 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 
 from app.core.security import get_password_hash
@@ -14,7 +16,7 @@ from app.models.letter import Letter  # noqa: F401
 from app.models.role import Role
 from app.models.user import User
 from app.models.user import UserStatus
-from app.rbac.roles import Roles
+from app.rbac.roles import Roles, SYSTEM_ROLE_CODE_BY_DISPLAY_NAME
 
 DEFAULT_EMAIL = "admin@example.com"
 DEFAULT_PASSWORD = "Admin@123"
@@ -50,7 +52,15 @@ def run() -> None:
         for role_name in ROLE_SEEDS:
             existing_role = db.scalar(select(Role).where(Role.name == role_name))
             if existing_role is None:
-                db.add(Role(name=role_name))
+                db.add(
+                    Role(
+                        name=role_name,
+                        code=SYSTEM_ROLE_CODE_BY_DISPLAY_NAME[role_name],
+                        is_system_role=True,
+                        is_active=True,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                )
         db.flush()
         role = db.scalar(select(Role).where(Role.name == DEFAULT_ROLE))
         if role is None:

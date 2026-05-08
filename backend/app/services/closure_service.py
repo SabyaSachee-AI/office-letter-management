@@ -14,8 +14,10 @@ from app.models.letter import (
 from app.core.letter_access import can_view_letter
 from app.models.activity import NotificationKind
 from app.models.user import User
+from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles, expand_role_names, is_system_admin, user_role_names
 from app.services.activity_service import ActivityService
+from app.services.permission_service import PermissionService
 
 
 class ClosureService:
@@ -26,24 +28,31 @@ class ClosureService:
     def _is_admin(user: User) -> bool:
         return is_system_admin(user)
 
-    @staticmethod
-    def _can_close_review(user: User) -> bool:
+    def _can_review_closure_actions(self, user: User) -> bool:
         if is_system_admin(user):
             return True
-        allowed = expand_role_names(Roles.TEAM_LEADER)
-        return bool(user_role_names(user) & allowed)
+        if user_role_names(user) & expand_role_names(Roles.TEAM_LEADER):
+            return True
+        return PermissionService(self.db).user_has_permission(user, PermissionKey.CLOSURE_REVIEW)
 
-    @staticmethod
-    def _can_view_history(user: User) -> bool:
+    def _can_perform_formal_close(self, user: User) -> bool:
         if is_system_admin(user):
             return True
-        allowed = expand_role_names(
+        if user_role_names(user) & expand_role_names(Roles.TEAM_LEADER):
+            return True
+        return PermissionService(self.db).user_has_permission(user, PermissionKey.CLOSURE_CLOSE)
+
+    def _can_view_history(self, user: User) -> bool:
+        if is_system_admin(user):
+            return True
+        if user_role_names(user) & expand_role_names(
             Roles.APPROVAL_HEAD_PEC,
             Roles.TEAM_LEADER,
             Roles.RECEIVING_OFFICER,
             Roles.CONSULTANT,
-        )
-        return bool(user_role_names(user) & allowed)
+        ):
+            return True
+        return PermissionService(self.db).user_has_permission(user, PermissionKey.CLOSURE_VIEW)
 
     def _get_letter(self, letter_id: int, *, with_actions: bool = True) -> Letter:
         stmt = select(Letter).options(selectinload(Letter.department))
@@ -107,7 +116,7 @@ class ClosureService:
         return any(a.action == action for a in letter.actions)
 
     def review_solution(self, letter_id: int, review_comment: str, user: User) -> Letter:
-        if not self._can_close_review(user):
+        if not self._can_review_closure_actions(user):
             raise ValueError("Insufficient role to review solution")
         letter = self._get_letter(letter_id)
         self._assert_department_access(letter, user)
@@ -128,7 +137,7 @@ class ClosureService:
         return self._get_letter(letter_id)
 
     def add_final_comment(self, letter_id: int, comment: str, user: User) -> Letter:
-        if not self._can_close_review(user):
+        if not self._can_review_closure_actions(user):
             raise ValueError("Insufficient role to add final comment")
         letter = self._get_letter(letter_id)
         self._assert_department_access(letter, user)
@@ -140,7 +149,7 @@ class ClosureService:
         return self._get_letter(letter_id)
 
     def close_issue(self, letter_id: int, final_comment: str, user: User) -> Letter:
-        if not self._can_close_review(user):
+        if not self._can_perform_formal_close(user):
             raise ValueError("Insufficient role to close issue")
         letter = self._get_letter(letter_id)
         self._assert_department_access(letter, user)

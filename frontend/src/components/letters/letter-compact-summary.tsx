@@ -9,6 +9,9 @@ type LetterCompactSummaryProps = {
   letter: LetterOut;
   className?: string;
   adminSection?: ReactNode;
+  workflowLabel?: string;
+  currentHolderLabel?: string;
+  internalStatus?: string;
 };
 
 /** Compact sidebar summary — enterprise-style panel without nested card overflow issues */
@@ -16,6 +19,9 @@ export function LetterCompactSummary({
   letter,
   className,
   adminSection,
+  workflowLabel,
+  currentHolderLabel,
+  internalStatus,
 }: LetterCompactSummaryProps) {
   return (
     <div
@@ -50,11 +56,29 @@ export function LetterCompactSummary({
           <dt className="font-medium text-slate-600">Received</dt>
           <dd>{new Date(letter.created_at).toLocaleString()}</dd>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-slate-600">Status</span>
-          <LetterStatusBadge status={letter.status} />
-          <LetterPriorityBadge priority={letter.priority} />
+        <div className="grid grid-cols-[auto_1fr] gap-x-2">
+          <dt className="font-medium text-slate-600">Status</dt>
+          <dd className="flex flex-wrap items-center gap-2">
+            <LetterStatusBadge status={letter.status} />
+            <LetterPriorityBadge priority={letter.priority} />
+          </dd>
         </div>
+        {workflowLabel ? (
+          <div className="grid grid-cols-[auto_1fr] gap-x-2">
+            <dt className="font-medium text-slate-600">Workflow state</dt>
+            <dd>
+              <div>{workflowLabel}</div>
+              {currentHolderLabel ? (
+                <div className="text-muted-foreground text-[11px]">
+                  Current holder: {currentHolderLabel}
+                </div>
+              ) : null}
+              {internalStatus ? (
+                <div className="text-muted-foreground text-[10px]">Internal: {internalStatus}</div>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
         <div className="grid grid-cols-[auto_1fr] gap-x-2">
           <dt className="font-medium text-slate-600">Department</dt>
           <dd>

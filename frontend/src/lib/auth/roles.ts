@@ -1,8 +1,11 @@
 import type { UserOut } from "@/types/user";
 
-const SYSTEM_ADMIN = new Set(["System Admin", "Admin"]);
-const APPROVAL_HEAD = new Set(["Approval Head-PEC", "Approval Head"]);
-const TEAM_LEADER = new Set(["Team Leader"]);
+import {
+  userHasAnyPermission,
+  userHasPermission,
+} from "@/lib/auth/permissions";
+
+const SYSTEM_ADMIN = new Set(["System Admin", "Admin"]);const APPROVAL_HEAD = new Set(["Approval Head-PEC", "Approval Head"]);
 const CONSULTANT = new Set(["Consultant"]);
 const RECEIVING_OFFICER = new Set(["Receiving Officer"]);
 
@@ -31,28 +34,38 @@ export function isSystemAdmin(user: UserOut | null): boolean {
 }
 
 export function canAssignConsultant(user: UserOut | null): boolean {
-  return hasRoleName(user, SYSTEM_ADMIN) || hasRoleName(user, TEAM_LEADER);
+  return userHasPermission(user, "assignment:assign");
 }
 
 export function canWorkflowDecide(user: UserOut | null): boolean {
   return (
-    hasRoleName(user, SYSTEM_ADMIN) ||
-    hasRoleName(user, APPROVAL_HEAD) ||
-    hasRoleName(user, TEAM_LEADER)
+    isAdmin(user) ||
+    userHasAnyPermission(user, [
+      "approval:approve",
+      "approval:reject",
+      "approval:return",
+      "approval:route",
+    ]) ||
+    userHasPermission(user, "assignment:assign")
   );
 }
 
 export function canClosure(user: UserOut | null): boolean {
-  return hasRoleName(user, SYSTEM_ADMIN) || hasRoleName(user, TEAM_LEADER);
+  return userHasPermission(user, "closure:close");
 }
 
 export function canViewApprovalQueue(user: UserOut | null): boolean {
-  return hasRoleName(user, SYSTEM_ADMIN) || hasRoleName(user, APPROVAL_HEAD);
+  return userHasPermission(user, "approval:view");
 }
 
-/** Approve / reject / return / route (PEC approval actors only). */
+/** Approve / reject / return / route — show controls when any workflow decision permission exists. */
 export function canApprovalActions(user: UserOut | null): boolean {
-  return hasRoleName(user, SYSTEM_ADMIN) || hasRoleName(user, APPROVAL_HEAD);
+  return userHasAnyPermission(user, [
+    "approval:approve",
+    "approval:reject",
+    "approval:return",
+    "approval:route",
+  ]);
 }
 
 export function isConsultant(user: UserOut | null): boolean {

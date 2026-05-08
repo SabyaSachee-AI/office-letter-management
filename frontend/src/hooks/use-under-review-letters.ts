@@ -19,7 +19,7 @@ export function useUnderReviewLetters(departmentId: number | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [fromOffice, setFromOffice] = useState("");
-  const [status, setStatus] = useState("under_review");
+  const [status, setStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");

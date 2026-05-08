@@ -3,12 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.models.user import UserStatus
-from app.rbac.guards import require_roles, require_screen
-from app.rbac.roles import ALL_ROLES, Roles
-from app.rbac.screens import ScreenKey
+from app.rbac.guards import require_any_permission, require_roles
+from app.rbac.permissions import PermissionKey
+from app.rbac.roles import Roles
 from app.schemas.user import (
     DepartmentAssignment,
     RoleAssignment,
@@ -27,7 +28,6 @@ from app.services.user_service import UserService
 router = APIRouter(prefix="/users", tags=["users"])
 
 SystemAdminOnly = Depends(require_roles(Roles.SYSTEM_ADMIN))
-UsersScreen = Depends(require_screen(ScreenKey.USERS))
 
 
 def _user_out(db: Session, user: User, *, with_screens: bool) -> UserOut:
@@ -40,7 +40,7 @@ def _user_out(db: Session, user: User, *, with_screens: bool) -> UserOut:
 
 @router.get("/me", response_model=UserOut)
 def me(
-    current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> UserOut:
     u = UserService(db).get_user(current_user.id)
@@ -51,7 +51,7 @@ def me(
     "/consultants",
     response_model=UserListResponse,
     dependencies=[
-        Depends(require_screen(ScreenKey.ASSIGNMENT)),
+        Depends(require_any_permission(PermissionKey.ASSIGNMENT_ASSIGN)),
         Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER)),
     ],
 )
@@ -75,7 +75,7 @@ def list_consultants_for_assignment(
     "/assignable-workflow-users",
     response_model=UserListResponse,
     dependencies=[
-        Depends(require_screen(ScreenKey.ASSIGNMENT)),
+        Depends(require_any_permission(PermissionKey.ASSIGNMENT_ASSIGN)),
         Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER)),
     ],
 )
@@ -98,6 +98,7 @@ def list_assignable_workflow_users(
     "/consultants-directory",
     response_model=UserListResponse,
     dependencies=[
+        Depends(require_any_permission(PermissionKey.CONSULTANT_VIEW)),
         Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER, Roles.CONSULTANT)),
     ],
 )
@@ -119,7 +120,10 @@ def list_consultants_directory(
 @router.get(
     "/team-leaders",
     response_model=UserListResponse,
-    dependencies=[UsersScreen, SystemAdminOnly],
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_VIEW)),
+        SystemAdminOnly,
+    ],
 )
 def list_team_leaders(
     db: Annotated[Session, Depends(get_db)],
@@ -143,7 +147,10 @@ def list_team_leaders(
     "",
     response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[UsersScreen, SystemAdminOnly],
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_CREATE)),
+        SystemAdminOnly,
+    ],
 )
 def create_user(
     payload: UserCreate,
@@ -166,7 +173,14 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("", response_model=UserListResponse, dependencies=[UsersScreen, SystemAdminOnly])
+@router.get(
+    "",
+    response_model=UserListResponse,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_VIEW)),
+        SystemAdminOnly,
+    ],
+)
 def list_users(
     db: Annotated[Session, Depends(get_db)],
     q: str | None = Query(default=None),
@@ -194,7 +208,14 @@ def list_users(
     )
 
 
-@router.put("/{user_id}", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
+@router.put(
+    "/{user_id}",
+    response_model=UserOut,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_UPDATE)),
+        SystemAdminOnly,
+    ],
+)
 def update_user(
     user_id: int,
     payload: UserUpdate,
@@ -218,7 +239,14 @@ def update_user(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.delete("/{user_id}", response_model=UserDeleteResult, dependencies=[UsersScreen, SystemAdminOnly])
+@router.delete(
+    "/{user_id}",
+    response_model=UserDeleteResult,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_DELETE)),
+        SystemAdminOnly,
+    ],
+)
 def delete_user(
     user_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -240,7 +268,14 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/roles", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
+@router.patch(
+    "/{user_id}/roles",
+    response_model=UserOut,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_UPDATE)),
+        SystemAdminOnly,
+    ],
+)
 def assign_roles(
     user_id: int,
     payload: RoleAssignment,
@@ -264,7 +299,14 @@ def assign_roles(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/department", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
+@router.patch(
+    "/{user_id}/department",
+    response_model=UserOut,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_UPDATE)),
+        SystemAdminOnly,
+    ],
+)
 def assign_department(
     user_id: int,
     payload: DepartmentAssignment,
@@ -288,7 +330,14 @@ def assign_department(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.patch("/{user_id}/status", response_model=UserOut, dependencies=[UsersScreen, SystemAdminOnly])
+@router.patch(
+    "/{user_id}/status",
+    response_model=UserOut,
+    dependencies=[
+        Depends(require_any_permission(PermissionKey.USERS_UPDATE)),
+        SystemAdminOnly,
+    ],
+)
 def update_status(
     user_id: int,
     payload: StatusUpdate,

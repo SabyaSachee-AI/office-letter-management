@@ -32,7 +32,7 @@ from sqlalchemy import select
 
 from app.core.security import get_password_hash
 from app.models.user import UserStatus
-from app.rbac.roles import ALL_ROLES, Roles
+from app.rbac.roles import ALL_ROLES, Roles, SYSTEM_ROLE_CODE_BY_DISPLAY_NAME
 
 
 PWD = "TestPass123!"
@@ -46,7 +46,13 @@ NEW_USER_EMAIL = "new_receiver@workflow.example.org"
 def _seed_users(session) -> tuple[int, dict[str, int]]:
     roles: dict[str, Role] = {}
     for name in ALL_ROLES:
-        r = Role(name=name)
+        r = Role(
+            name=name,
+            code=SYSTEM_ROLE_CODE_BY_DISPLAY_NAME[name],
+            is_system_role=True,
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
         session.add(r)
         session.flush()
         roles[name] = r

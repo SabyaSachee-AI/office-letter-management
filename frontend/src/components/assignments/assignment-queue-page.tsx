@@ -12,6 +12,7 @@ import { LettersTable } from "@/components/letters/letters-table";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
 import { canAssignConsultant, isAdmin } from "@/lib/auth/roles";
+import { ASSIGNMENT_QUEUE_STATUS_OPTIONS } from "@/lib/workflow-display";
 import { getAssignmentTracking } from "@/lib/api/assignments";
 import { fetchDepartments } from "@/lib/api/users";
 import { useUnderReviewLetters } from "@/hooks/use-under-review-letters";
@@ -46,11 +47,7 @@ export function AssignmentQueuePage() {
 
   const canAssign = canAssignConsultant(user);
 
-  const STATUS_OPTS = [
-    { value: "under_review", label: "Under review" },
-    { value: "processed", label: "Processed" },
-    { value: "closed", label: "Closed" },
-  ];
+  const STATUS_OPTS = [...ASSIGNMENT_QUEUE_STATUS_OPTIONS];
 
   useEffect(() => {
     if (admin) {
@@ -61,7 +58,7 @@ export function AssignmentQueuePage() {
   useEffect(() => {
     filters.setSearchQ(searchParams.get("q") ?? "");
     filters.setFromOffice(searchParams.get("from_office") ?? "");
-    filters.setStatus(searchParams.get("status") ?? "under_review");
+    filters.setStatus(searchParams.get("status") ?? "");
     filters.setDateFrom(searchParams.get("date_from") ?? "");
     filters.setDateTo(searchParams.get("date_to") ?? "");
     filters.setDepartmentFilter(searchParams.get("department_id") ?? "");
@@ -119,7 +116,7 @@ export function AssignmentQueuePage() {
         onReset={() => {
           filters.setSearchQ("");
           filters.setFromOffice("");
-          filters.setStatus("under_review");
+          filters.setStatus("");
           filters.setDateFrom("");
           filters.setDateTo("");
           filters.setDepartmentFilter("");

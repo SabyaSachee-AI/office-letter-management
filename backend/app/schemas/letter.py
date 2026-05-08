@@ -2,8 +2,37 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.letter import LetterPriority, LetterStatus
+from app.models.letter import AssignmentWorkStatus, LetterPriority, LetterStatus
 from app.schemas.department import DepartmentOut
+
+
+class LetterLatestAssignmentUserOut(BaseModel):
+    id: int
+    full_name: str
+    email: str
+    roles: list[str]
+    department: DepartmentOut | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LetterLatestAssignmentOut(BaseModel):
+    id: int
+    letter_id: int
+    consultant_id: int
+    assigned_by: int
+    deadline_at: datetime
+    is_active: bool
+    work_status: AssignmentWorkStatus
+    resolution_note: str | None = None
+    has_solution_file: bool = False
+    latest_solution_file_uploaded_at: datetime | None = None
+    assigned_at: datetime
+    updated_at: datetime
+    consultant_user: LetterLatestAssignmentUserOut | None = None
+    assigned_by_user: LetterLatestAssignmentUserOut | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LetterOut(BaseModel):
@@ -20,6 +49,7 @@ class LetterOut(BaseModel):
     created_at: datetime
     closed_at: datetime | None = None
     closed_by: int | None = None
+    latest_assignment: LetterLatestAssignmentOut | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

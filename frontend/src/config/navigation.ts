@@ -13,36 +13,25 @@ import {
   Users,
 } from "lucide-react";
 
+import { effectivePermissions } from "@/lib/auth/permissions";
 import type { UserOut } from "@/types/user";
 
-/** Backend screen keys from `GET /users/me` → `allowed_screens`. */
-export type NavScreen =
-  | "dashboard"
-  | "letters:view"
-  | "letters:create"
-  | "approval"
-  | "assignment"
-  | "consultant"
-  | "closure"
-  | "reports"
-  | "users"
-  | "notifications"
-  | "security"
-  | "role_management";
+/** Permission keys used for sidebar visibility (prefer ``*:view``). */
+export type NavScreen = string;
 
 export type NavItem = {
   title: string;
   href: string;
   icon: LucideIcon;
-  /** Exactly one required screen (unless `anyOf` is set). */
+  /** Exactly one required permission (unless `anyOf` is set). */
   screen?: NavScreen;
   /** User needs at least one of these (e.g. Letters list: view or create). */
   anyOf?: NavScreen[];
 };
 
 export const dashboardNav: NavItem[] = [
-  { title: "Overview", href: "/dashboard", icon: LayoutDashboard, screen: "dashboard" },
-  { title: "Reports", href: "/dashboard/reports", icon: BarChart3, screen: "reports" },
+  { title: "Overview", href: "/dashboard", icon: LayoutDashboard, screen: "dashboard:view" },
+  { title: "Reports", href: "/dashboard/reports", icon: BarChart3, screen: "reports:view" },
   {
     title: "Letters",
     href: "/dashboard/letters",
@@ -53,60 +42,60 @@ export const dashboardNav: NavItem[] = [
     title: "Approval",
     href: "/dashboard/approval",
     icon: ClipboardCheck,
-    screen: "approval",
+    screen: "approval:view",
   },
   {
     title: "Assignment",
     href: "/dashboard/assignment",
     icon: UserPlus,
-    screen: "assignment",
+    screen: "assignment:view",
   },
   {
     title: "Consultant",
     href: "/dashboard/consultant",
     icon: Briefcase,
-    screen: "consultant",
+    screen: "consultant:view",
   },
   {
     title: "Closure",
     href: "/dashboard/closure",
     icon: ListChecks,
-    screen: "closure",
+    screen: "closure:view",
   },
-  { title: "Notifications", href: "/dashboard/notifications", icon: Bell, screen: "notifications" },
+  {
+    title: "Notifications",
+    href: "/dashboard/notifications",
+    icon: Bell,
+    screen: "notifications:view",
+  },
   {
     title: "Users",
     href: "/dashboard/users",
     icon: Users,
-    screen: "users",
+    screen: "users:view",
   },
   {
     title: "Role management",
     href: "/dashboard/role-management",
     icon: ShieldCheck,
-    screen: "role_management",
+    screen: "role_management:view",
   },
   {
     title: "Security logs",
     href: "/dashboard/security",
     icon: Shield,
-    screen: "security",
+    screen: "security:view",
   },
 ];
 
-/** Normalize legacy `letters` permission from older APIs. */
+/** Normalize legacy module tokens and ``letters`` → granular keys (matches backend expansion). */
 export function expandAllowedScreensKeys(screens: string[]): Set<string> {
-  const s = new Set(screens);
-  if (s.has("letters")) {
-    s.add("letters:view");
-    s.add("letters:create");
-  }
-  return s;
+  return effectivePermissions({ allowed_screens: screens } as UserOut);
 }
 
 export function filterNavForUser(items: NavItem[], user: UserOut | null): NavItem[] {
   if (!user) return [];
-  const screens = expandAllowedScreensKeys(user.allowed_screens ?? []);
+  const screens = effectivePermissions(user);
   if (!screens.size) {
     return items.filter(() => false);
   }

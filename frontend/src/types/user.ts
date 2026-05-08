@@ -2,6 +2,11 @@ export type RoleOut = {
   id: number;
   name: string;
   sort_order?: number;
+  code?: string;
+  description?: string | null;
+  is_system_role?: boolean;
+  is_active?: boolean;
+  created_at?: string | null;
 };
 
 export type DepartmentOut = {

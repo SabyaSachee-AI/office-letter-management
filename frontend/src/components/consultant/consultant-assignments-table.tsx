@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { DataTable, type DataTableColumn } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/empty-state";
+import { AssignmentStatusBadge } from "@/components/letters/letter-badges";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ConsultantAssignmentRow } from "@/types/letter";
@@ -12,10 +13,6 @@ type ConsultantAssignmentsTableProps = {
   rows: ConsultantAssignmentRow[];
   loading: boolean;
 };
-
-function assignmentStatusLabel(workStatus: string): string {
-  return workStatus.replace(/_/g, " ");
-}
 
 export function ConsultantAssignmentsTable({ rows, loading }: ConsultantAssignmentsTableProps) {
   const columns: DataTableColumn<ConsultantAssignmentRow>[] = [
@@ -95,9 +92,7 @@ export function ConsultantAssignmentsTable({ rows, loading }: ConsultantAssignme
       id: "status",
       header: "Status",
       cell: (row) => (
-        <span className="inline-flex rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs capitalize text-[#123f63]">
-          {assignmentStatusLabel(row.assignment.work_status)}
-        </span>
+        <AssignmentStatusBadge status={row.assignment.work_status} />
       ),
     },
     {

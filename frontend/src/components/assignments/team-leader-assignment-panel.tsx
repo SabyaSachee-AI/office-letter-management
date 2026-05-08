@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { assignConsultant, reassignConsultant } from "@/lib/api/assignments";
 import { listAssignableWorkflowUsers } from "@/lib/api/users";
+import { useAuth } from "@/context/auth-context";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { AssignmentOut, LetterActionHistoryItem } from "@/types/letter";
@@ -34,6 +36,11 @@ export function TeamLeaderAssignmentPanel({
   lastTeamLeaderAction,
   onSuccess,
 }: TeamLeaderAssignmentPanelProps) {
+  const { user } = useAuth();
+  const canAssignFirst = userHasPermission(user, "assignment:assign");
+  const canReassign = userHasPermission(user, "assignment:reassign");
+  const canSubmit = activeAssignment ? canReassign : canAssignFirst;
+
   const [users, setUsers] = useState<UserOut[]>([]);
   const [assigneeId, setAssigneeId] = useState("");
   const [deadline, setDeadline] = useState("");
@@ -148,6 +155,13 @@ export function TeamLeaderAssignmentPanel({
         </p>
       ) : null}
 
+      {!canSubmit ? (
+        <p className="text-muted-foreground text-xs">
+          You do not have permission to {activeAssignment ? "reassign" : "assign"} consultants for this
+          letter.
+        </p>
+      ) : null}
+
       <div className="grid gap-2">
         <Label htmlFor="tl-assignee">Assign to</Label>
         <select
@@ -156,6 +170,7 @@ export function TeamLeaderAssignmentPanel({
           className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
           value={assigneeId}
           onChange={(e) => setAssigneeId(e.target.value)}
+          disabled={!canSubmit}
         >
           <option value="">Select…</option>
           {users.map((u) => (
@@ -175,6 +190,7 @@ export function TeamLeaderAssignmentPanel({
           className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
+          disabled={!canSubmit}
         />
       </div>
 
@@ -187,13 +203,20 @@ export function TeamLeaderAssignmentPanel({
           placeholder="Instructions for the assignee…"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
+          disabled={!canSubmit}
         />
       </div>
 
       <div className="flex flex-wrap gap-2 pt-1">
         <Button
           size="sm"
-          disabled={pending || comment.trim().length < 2 || !assigneeId || !deadline}
+          disabled={
+            pending ||
+            comment.trim().length < 2 ||
+            !assigneeId ||
+            !deadline ||
+            !canSubmit
+          }
           onClick={() => void handleSubmit()}
         >
           {pending ? "Saving…" : activeAssignment ? "Forward" : "Assign"}

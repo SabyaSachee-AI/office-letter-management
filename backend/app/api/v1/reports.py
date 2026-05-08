@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.letter import LetterStatus
 from app.models.user import User
-from app.rbac.guards import require_roles, require_screen
+from app.rbac.guards import require_any_permission, require_roles
+from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
-from app.rbac.screens import ScreenKey
 from app.schemas.report import AnalyticsOut
 from app.services.export_service import build_letters_pdf, build_letters_xlsx, letter_row_from_model
 from app.services.report_service import ReportFilters, ReportsService
@@ -43,7 +43,7 @@ def _parse_filters(
 @router.get(
     "/analytics",
     response_model=AnalyticsOut,
-    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.REPORTS_VIEW))],
 )
 def reports_analytics(
     db: Annotated[Session, Depends(get_db)],
@@ -65,7 +65,7 @@ def reports_analytics(
 
 @router.get(
     "/export/letters.pdf",
-    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.REPORTS_EXPORT))],
 )
 def export_letters_pdf(
     db: Annotated[Session, Depends(get_db)],
@@ -96,7 +96,7 @@ def export_letters_pdf(
 
 @router.get(
     "/export/letters.xlsx",
-    dependencies=[Depends(require_screen(ScreenKey.REPORTS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.REPORTS_EXPORT))],
 )
 def export_letters_xlsx(
     db: Annotated[Session, Depends(get_db)],

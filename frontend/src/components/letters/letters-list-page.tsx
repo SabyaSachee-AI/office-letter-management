@@ -17,6 +17,7 @@ import { isAdmin, isCentralLetterRole } from "@/lib/auth/roles";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { fetchDepartments } from "@/lib/api/users";
 import { listLetters } from "@/lib/api/letters";
+import { LETTER_STATUS_FILTER_OPTIONS } from "@/lib/workflow-display";
 import type { LetterOut } from "@/types/letter";
 import type { DepartmentOut } from "@/types/user";
 
@@ -24,12 +25,7 @@ const PAGE = 20;
 
 const STATUS_OPTS = [
   { value: "pending_assignment", label: "Pending Assignment" },
-  { value: "received", label: "Received" },
-  { value: "under_review", label: "Under review" },
-  { value: "returned_for_correction", label: "Returned" },
-  { value: "rejected", label: "Rejected" },
-  { value: "processed", label: "Processed" },
-  { value: "closed", label: "Closed" },
+  ...LETTER_STATUS_FILTER_OPTIONS,
 ];
 
 export function LettersListPage() {

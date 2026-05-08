@@ -7,9 +7,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.letter import AssignmentWorkStatus
 from app.models.user import User
-from app.rbac.guards import require_roles, require_screen
-from app.rbac.roles import Roles
-from app.rbac.screens import ScreenKey
+from app.rbac.guards import require_any_permission, require_consultant_workspace_actor
+from app.rbac.permissions import PermissionKey
 from app.schemas.assignment import AssignmentOut
 from app.schemas.consultant import (
     ConsultantAssignedLetterListOut,
@@ -22,17 +21,17 @@ from app.schemas.department import DepartmentOut
 from app.services.assignment_service import AssignmentService
 from app.services.consultant_service import ConsultantService
 
-router = APIRouter(
-    prefix="/consultant",
-    tags=["consultant"],
-    dependencies=[Depends(require_screen(ScreenKey.CONSULTANT))],
+router = APIRouter(prefix="/consultant", tags=["consultant"])
+
+
+@router.get(
+    "/assignments",
+    response_model=ConsultantAssignedLetterListOut,
+    dependencies=[Depends(require_any_permission(PermissionKey.CONSULTANT_VIEW))],
 )
-
-
-@router.get("/assignments", response_model=ConsultantAssignedLetterListOut)
 def my_assignments(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
+    current_user: Annotated[User, Depends(require_consultant_workspace_actor())],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None),
@@ -73,12 +72,16 @@ def my_assignments(
     return ConsultantAssignedLetterListOut(items=mapped, total=total, limit=limit, offset=offset)
 
 
-@router.patch("/assignments/{assignment_id}/status", response_model=AssignmentOut)
+@router.patch(
+    "/assignments/{assignment_id}/status",
+    response_model=AssignmentOut,
+    dependencies=[Depends(require_any_permission(PermissionKey.CONSULTANT_UPDATE))],
+)
 def update_assignment_status(
     assignment_id: int,
     payload: ConsultantStatusUpdateIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
+    current_user: Annotated[User, Depends(require_consultant_workspace_actor())],
 ) -> AssignmentOut:
     service = ConsultantService(db)
     assign_service = AssignmentService(db)
@@ -94,12 +97,16 @@ def update_assignment_status(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.patch("/assignments/{assignment_id}/resolution", response_model=AssignmentOut)
+@router.patch(
+    "/assignments/{assignment_id}/resolution",
+    response_model=AssignmentOut,
+    dependencies=[Depends(require_any_permission(PermissionKey.CONSULTANT_RESOLVE))],
+)
 def add_resolution_note(
     assignment_id: int,
     payload: ConsultantResolutionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
+    current_user: Annotated[User, Depends(require_consultant_workspace_actor())],
 ) -> AssignmentOut:
     service = ConsultantService(db)
     assign_service = AssignmentService(db)
@@ -115,11 +122,15 @@ def add_resolution_note(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/assignments/{assignment_id}/files", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/assignments/{assignment_id}/files",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_any_permission(PermissionKey.CONSULTANT_UPLOAD))],
+)
 def upload_solution_file(
     assignment_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
+    current_user: Annotated[User, Depends(require_consultant_workspace_actor())],
     comment: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict[str, str]:
@@ -136,12 +147,16 @@ def upload_solution_file(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/assignments/{assignment_id}/transfer", response_model=AssignmentOut)
+@router.post(
+    "/assignments/{assignment_id}/transfer",
+    response_model=AssignmentOut,
+    dependencies=[Depends(require_any_permission(PermissionKey.CONSULTANT_TRANSFER))],
+)
 def transfer_assignment(
     assignment_id: int,
     payload: ConsultantTransferIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.CONSULTANT))],
+    current_user: Annotated[User, Depends(require_consultant_workspace_actor())],
 ) -> AssignmentOut:
     service = ConsultantService(db)
     assign_service = AssignmentService(db)

@@ -1,4 +1,5 @@
 import type { AssignmentOut } from "@/types/letter";
+import { AssignmentStatusBadge } from "@/components/letters/letter-badges";
 
 type Dept = { name: string; code: string } | null | undefined;
 
@@ -52,9 +53,7 @@ export function AssignmentRecipientSummary({
       ) : null}
       <p className="mt-2">
         <span className="font-medium text-slate-700">Current assignment status: </span>
-        <span className="capitalize text-[#123f63]">
-          {assignment.work_status.replace(/_/g, " ")}
-        </span>
+        <AssignmentStatusBadge status={assignment.work_status} />
       </p>
     </div>
   );

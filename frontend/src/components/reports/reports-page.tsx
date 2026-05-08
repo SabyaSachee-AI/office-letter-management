@@ -12,7 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/auth-context";
+import { userHasPermission } from "@/lib/auth/permissions";
 import { isAdmin, isCentralLetterRole } from "@/lib/auth/roles";
+import {
+  ASSIGNMENT_WORK_STATUS_LABELS,
+  LETTER_STATUS_FILTER_OPTIONS,
+  LETTER_STATUS_LABELS,
+} from "@/lib/workflow-display";
 import {
   downloadLettersPdf,
   downloadLettersXlsx,
@@ -26,12 +32,7 @@ import type { DepartmentOut } from "@/types/user";
 
 const STATUS_OPTS = [
   { value: "pending_assignment", label: "Pending Assignment" },
-  { value: "received", label: "Received" },
-  { value: "under_review", label: "Under review" },
-  { value: "returned_for_correction", label: "Returned" },
-  { value: "rejected", label: "Rejected" },
-  { value: "processed", label: "Processed" },
-  { value: "closed", label: "Closed" },
+  ...LETTER_STATUS_FILTER_OPTIONS,
 ];
 
 function defaultDateRange() {
@@ -44,16 +45,27 @@ function defaultDateRange() {
   };
 }
 
-function humanizeKey(key: string): string {
+function humanizeKey(
+  key: string,
+  kind: "letter_status" | "assignment_status" | "generic" = "generic"
+): string {
+  if (kind === "letter_status" && key in LETTER_STATUS_LABELS) {
+    return LETTER_STATUS_LABELS[key as keyof typeof LETTER_STATUS_LABELS];
+  }
+  if (kind === "assignment_status" && key in ASSIGNMENT_WORK_STATUS_LABELS) {
+    return ASSIGNMENT_WORK_STATUS_LABELS[key as keyof typeof ASSIGNMENT_WORK_STATUS_LABELS];
+  }
   return key.replace(/_/g, " ");
 }
 
 function DistributionBars({
   title,
   data,
+  keyKind = "generic",
 }: {
   title: string;
   data: Record<string, number>;
+  keyKind?: "letter_status" | "assignment_status" | "generic";
 }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...entries.map(([, v]) => v));
@@ -69,7 +81,7 @@ function DistributionBars({
         {entries.map(([k, v]) => (
           <li key={k} className="space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="capitalize">{humanizeKey(k)}</span>
+              <span>{humanizeKey(k, keyKind)}</span>
               <span className="text-muted-foreground">{v}</span>
             </div>
             <div className="bg-muted h-2 overflow-hidden rounded-full">
@@ -92,6 +104,7 @@ export function ReportsPage() {
   const { user } = useAuth();
   const admin = isAdmin(user);
   const central = isCentralLetterRole(user);
+  const canExportReports = userHasPermission(user, "reports:export");
   const defaults = useMemo(() => defaultDateRange(), []);
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -277,7 +290,7 @@ export function ReportsPage() {
           type="button"
           variant="outline"
           size="sm"
-          disabled={!!exporting}
+          disabled={!!exporting || !canExportReports}
           onClick={async () => {
             setExporting("pdf");
             try {
@@ -293,7 +306,7 @@ export function ReportsPage() {
           type="button"
           variant="outline"
           size="sm"
-          disabled={!!exporting}
+          disabled={!!exporting || !canExportReports}
           onClick={async () => {
             setExporting("xlsx");
             try {
@@ -306,6 +319,11 @@ export function ReportsPage() {
           {exporting === "xlsx" ? "Preparing…" : "Download Excel"}
         </Button>
       </div>
+      {!canExportReports ? (
+        <p className="text-muted-foreground text-xs">
+          You can view analytics but do not have permission to export reports.
+        </p>
+      ) : null}
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -401,6 +419,7 @@ export function ReportsPage() {
                 <DistributionBars
                   title="By status"
                   data={analytics.letters_by_status}
+                  keyKind="letter_status"
                 />
                 <DistributionBars
                   title="By priority"
@@ -416,6 +435,7 @@ export function ReportsPage() {
                 <DistributionBars
                   title="Assignments by work status"
                   data={analytics.assignments_by_work_status}
+                  keyKind="assignment_status"
                 />
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="rounded-md border p-3">

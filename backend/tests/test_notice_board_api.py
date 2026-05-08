@@ -22,7 +22,7 @@ from app.models.letter import (  # noqa: F401
 from app.models.notice import Notice  # noqa: F401
 from app.models.role import Role  # noqa: F401
 from app.models.user import User, UserStatus  # noqa: F401
-from app.rbac.roles import ALL_ROLES, Roles
+from app.rbac.roles import ALL_ROLES, Roles, SYSTEM_ROLE_CODE_BY_DISPLAY_NAME
 
 PWD = "TestPass123!"
 ADMIN_EMAIL = "admin@notice.example.org"
@@ -46,7 +46,13 @@ def _login(c: TestClient, email: str) -> str:
 def _seed_users(session) -> None:
     roles: dict[str, Role] = {}
     for name in ALL_ROLES:
-        role = Role(name=name)
+        role = Role(
+            name=name,
+            code=SYSTEM_ROLE_CODE_BY_DISPLAY_NAME[name],
+            is_system_role=True,
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
         session.add(role)
         session.flush()
         roles[name] = role

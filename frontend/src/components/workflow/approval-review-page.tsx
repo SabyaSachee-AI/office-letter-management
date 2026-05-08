@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ActionHistoryCard } from "@/components/letters/action-history-list";
-import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/letter-badges";
+import { LetterPriorityBadge, VisibleWorkflowStatusBadge } from "@/components/letters/letter-badges";
+import { getVisibleWorkflowStatus } from "@/lib/workflow-display";
 import { ErrorBanner } from "@/components/data/error-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -22,6 +23,8 @@ import { fetchLetterAttachmentBlob, getLetter, getLetterActionHistory } from "@/
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { approveLetter, rejectLetter } from "@/lib/api/workflow";
 import { fetchDepartments } from "@/lib/api/users";
+import { useAuth } from "@/context/auth-context";
+import { userHasPermission } from "@/lib/auth/permissions";
 import type { ClosureHistoryResponse, LetterOut } from "@/types/letter";
 import type { DepartmentOut } from "@/types/user";
 
@@ -44,6 +47,10 @@ export function ApprovalReviewPage({ letterId }: { letterId: number }) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+
+  const { user } = useAuth();
+  const canApproveAction = userHasPermission(user, "approval:approve");
+  const canRejectAction = userHasPermission(user, "approval:reject");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +132,7 @@ export function ApprovalReviewPage({ letterId }: { letterId: number }) {
 
   if (loading) return <p className="text-sm text-slate-500">Loading review screen...</p>;
   if (loadError || !letter || !history) return <ErrorBanner message={loadError ?? "Failed to load review"} />;
+  const visibleStatus = getVisibleWorkflowStatus(letter);
 
   return (
     <div className="space-y-5">
@@ -146,7 +154,13 @@ export function ApprovalReviewPage({ letterId }: { letterId: number }) {
         <div className="text-sm"><span className="font-medium">Memo No:</span> {letter.memo_no || "—"}</div>
         <div className="text-sm"><span className="font-medium">From Office:</span> {letter.received_from}</div>
         <div className="text-sm"><span className="font-medium">Received Date:</span> {new Date(letter.created_at).toLocaleString()}</div>
-        <div className="text-sm flex items-center gap-2"><span className="font-medium">Status:</span> <LetterStatusBadge status={letter.status} /></div>
+        <div className="text-sm flex items-center gap-2">
+          <span className="font-medium">Status:</span>
+          <VisibleWorkflowStatusBadge letter={letter} />
+          <span className="text-muted-foreground text-xs">
+            Current holder: {visibleStatus.currentHolderLabel}
+          </span>
+        </div>
         <div className="text-sm flex items-center gap-2"><span className="font-medium">Priority:</span> <LetterPriorityBadge priority={letter.priority} /></div>
         <div className="text-sm lg:col-span-3"><span className="font-medium">Subject:</span> {letter.subject}</div>
       </div>
@@ -231,6 +245,11 @@ export function ApprovalReviewPage({ letterId }: { letterId: number }) {
           <p className="text-xs text-slate-500">
             Future-ready: this panel is structured to support annotation metadata overlays later without changing original files.
           </p>
+          {!canApproveAction && !canRejectAction ? (
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              You can review this attachment but do not have permission to approve or reject.
+            </p>
+          ) : null}
           <div className="grid gap-2">
             <Label htmlFor="review-note">Workflow Note</Label>
             <textarea
@@ -273,13 +292,25 @@ export function ApprovalReviewPage({ letterId }: { letterId: number }) {
             </select>
           </div>
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button disabled={pending || !departmentId || !canSubmitReviewNote()} onClick={() => requestConfirm("assign")}>
+            <Button
+              disabled={
+                pending || !departmentId || !canSubmitReviewNote() || !canApproveAction
+              }
+              onClick={() => requestConfirm("assign")}
+            >
               Assign Department
             </Button>
-            <Button disabled={pending || !canSubmitReviewNote()} onClick={() => requestConfirm("approve")}>
+            <Button
+              disabled={pending || !canSubmitReviewNote() || !canApproveAction}
+              onClick={() => requestConfirm("approve")}
+            >
               Approve
             </Button>
-            <Button disabled={pending || !canSubmitReviewNote()} variant="destructive" onClick={() => requestConfirm("reject")}>
+            <Button
+              disabled={pending || !canSubmitReviewNote() || !canRejectAction}
+              variant="destructive"
+              onClick={() => requestConfirm("reject")}
+            >
               Reject
             </Button>
             <Link href="/dashboard/approval" className={cn(buttonVariants({ size: "sm", variant: "outline" }))}>

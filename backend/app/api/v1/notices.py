@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.notice import Notice
 from app.models.user import User
 from app.rbac.guards import require_roles
-from app.rbac.roles import ALL_ROLES, Roles
+from app.rbac.roles import Roles
 from app.schemas.notice import NoticeCreateIn, NoticeListResponse, NoticeOut, NoticeUpdateIn
 from app.services.activity_service import ActivityService
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/notices", tags=["notices"])
 @router.get("", response_model=NoticeListResponse)
 def list_notices(
     db: Annotated[Session, Depends(get_db)],
-    _current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    _current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> NoticeListResponse:

@@ -28,6 +28,33 @@ type ClosurePanelProps = {
   consultantSolutionSummary: string | null;
   /** True after "Review solution" step completed */
   solutionReviewed: boolean;
+  /** Step 1 — matches backend ``closure:review`` */
+  canReviewSolution: boolean;
+  /** Step 2 — matches backend ``closure:review`` */
+  canSaveFinalRemark: boolean;
+  /** Step 3 — matches backend ``closure:close`` */
+  canOfficialClose: boolean;
+  approvalNote?: {
+    comment: string;
+    actor: string;
+    department: string;
+    timestamp: string;
+  } | null;
+  teamLeaderNote?: {
+    comment: string;
+    actor: string;
+    assignedTo: string;
+    timestamp: string;
+  } | null;
+  consultantNote?: {
+    note: string | null;
+    hasFile: boolean;
+    resolvedBy: string;
+    resolvedAt: string;
+    workStatus?: string;
+  } | null;
+  /** True when active assignment is resolved / has note / file — matches backend closure preconditions */
+  consultantWorkEvidenceReady?: boolean;
 };
 
 export function ClosurePanel({
@@ -35,6 +62,13 @@ export function ClosurePanel({
   onChanged,
   consultantSolutionSummary,
   solutionReviewed,
+  canReviewSolution,
+  canSaveFinalRemark,
+  canOfficialClose,
+  approvalNote = null,
+  teamLeaderNote = null,
+  consultantNote = null,
+  consultantWorkEvidenceReady = false,
 }: ClosurePanelProps) {
   const [review, setReview] = useState("");
   const [finalC, setFinalC] = useState("");
@@ -60,7 +94,7 @@ export function ClosurePanel({
           ? "Solution review submitted."
           : key === "final"
             ? "Final remark saved."
-            : "Letter closed successfully.";
+            : "Letter officially closed successfully.";
       setMsg("Saved.");
       toastSuccess(ok);
       onChanged();
@@ -73,7 +107,9 @@ export function ClosurePanel({
     }
   }
 
-  const hasSolutionEvidence = Boolean(consultantSolutionSummary?.trim());
+  const hasSolutionEvidence = Boolean(
+    consultantSolutionSummary?.trim() || consultantWorkEvidenceReady
+  );
 
   return (
     <Card id="closure" className="border-[#d7e6f6]">
@@ -91,16 +127,90 @@ export function ClosurePanel({
             {err}
           </p>
         ) : null}
+        {!canReviewSolution && !canSaveFinalRemark && !canOfficialClose ? (
+          <p className="text-muted-foreground rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+            You can view closure records here but do not have permission to submit closure actions.
+          </p>
+        ) : null}
         {msg ? (
           <p className="text-emerald-700 text-sm dark:text-emerald-400">{msg}</p>
         ) : null}
 
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-xs">
+            <p className="font-semibold text-[#123f63]">Approval Head-PEC Note</p>
+            {approvalNote ? (
+              <div className="mt-2 space-y-1">
+                <p className="whitespace-pre-wrap">{approvalNote.comment}</p>
+                <p>
+                  <span className="font-medium">Approved by:</span> {approvalNote.actor}
+                </p>
+                <p>
+                  <span className="font-medium">Assigned department:</span> {approvalNote.department}
+                </p>
+                <p>{new Date(approvalNote.timestamp).toLocaleString()}</p>
+              </div>
+            ) : (
+              <p className="mt-2 text-slate-500">No approval note recorded.</p>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-xs">
+            <p className="font-semibold text-[#123f63]">Team Leader Note</p>
+            {teamLeaderNote ? (
+              <div className="mt-2 space-y-1">
+                <p className="whitespace-pre-wrap">{teamLeaderNote.comment}</p>
+                <p>
+                  <span className="font-medium">Assigned to:</span> {teamLeaderNote.assignedTo}
+                </p>
+                <p>
+                  <span className="font-medium">Assigned by:</span> {teamLeaderNote.actor}
+                </p>
+                <p>{new Date(teamLeaderNote.timestamp).toLocaleString()}</p>
+              </div>
+            ) : (
+              <p className="mt-2 text-slate-500">No team leader note recorded.</p>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-xs">
+            <p className="font-semibold text-[#123f63]">Consultant Solution Note</p>
+            {consultantNote ? (
+              <div className="mt-2 space-y-1">
+                <p className="whitespace-pre-wrap">
+                  {consultantNote.note?.trim()
+                    ? consultantNote.note
+                    : consultantNote.workStatus === "resolved"
+                      ? "No separate solution note saved — assignment marked as resolved (see workflow timeline for status-update comments)."
+                      : "No text note."}
+                </p>
+                <p>
+                  <span className="font-medium">Uploaded file:</span>{" "}
+                  {consultantNote.hasFile ? "Yes" : "No"}
+                </p>
+                <p>
+                  <span className="font-medium">Resolved by:</span> {consultantNote.resolvedBy}
+                </p>
+                <p>{new Date(consultantNote.resolvedAt).toLocaleString()}</p>
+              </div>
+            ) : (
+              <p className="mt-2 text-slate-500">No consultant solution recorded.</p>
+            )}
+          </div>
+        </div>
+
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-3">
           <h4 className="text-sm font-medium text-[#123f63]">Consultant solution (read-only)</h4>
           {hasSolutionEvidence ? (
-            <pre className="text-foreground max-h-48 overflow-auto whitespace-pre-wrap rounded-md border bg-white p-3 font-sans text-sm">
-              {consultantSolutionSummary}
-            </pre>
+            consultantSolutionSummary?.trim() ? (
+              <pre className="text-foreground max-h-48 overflow-auto whitespace-pre-wrap rounded-md border bg-white p-3 font-sans text-sm">
+                {consultantSolutionSummary}
+              </pre>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                Consultant work is on record as resolved (or has evidence on the assignment).
+                Review the workflow timeline on the left for full comments. You may proceed after Step
+                1 if satisfied.
+              </p>
+            )
           ) : (
             <p className="text-muted-foreground text-sm">
               No resolution note or solution file activity is recorded yet. The consultant should
@@ -137,7 +247,7 @@ export function ClosurePanel({
           <Button
             type="button"
             size="sm"
-            disabled={busy !== null || review.trim().length < 3 || solutionReviewed}
+              disabled={busy !== null || review.trim().length < 3 || solutionReviewed || !canReviewSolution}
             onClick={() =>
               void run("review", () => reviewSolution(letterId, review.trim()), () => setReview(""))
             }
@@ -167,7 +277,7 @@ export function ClosurePanel({
             type="button"
             size="sm"
             variant="secondary"
-            disabled={busy !== null || finalC.trim().length < 3}
+            disabled={busy !== null || finalC.trim().length < 3 || !canSaveFinalRemark}
             onClick={() =>
               void run("final", () => addFinalComment(letterId, finalC.trim()), () => setFinalC(""))
             }
@@ -196,22 +306,35 @@ export function ClosurePanel({
           <Button
             type="button"
             size="sm"
-            variant="destructive"
-            disabled={busy !== null || closeC.trim().length < 3}
+            disabled={
+              busy !== null ||
+              closeC.trim().length < 3 ||
+              !hasSolutionEvidence ||
+              !canOfficialClose
+            }
             onClick={() => setConfirmCloseOpen(true)}
           >
-            Close letter
+            Closed
           </Button>
+          {!hasSolutionEvidence ? (
+            <p className="text-amber-800 text-xs">
+              Consultant must resolve the assignment or provide a solution note / file before closure.
+            </p>
+          ) : null}
+          {!canOfficialClose ? (
+            <p className="text-muted-foreground text-xs">
+              Final closure requires the Close permission (typically Team Leader or System Admin).
+            </p>
+          ) : null}
         </div>
       </CardContent>
 
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm letter closure</DialogTitle>
+            <DialogTitle>Confirm official closure</DialogTitle>
             <DialogDescription>
-              This will mark the letter as closed, deactivate the active assignment, and append your
-              closure comment to the workflow history. This action cannot be undone from the UI.
+              Are you sure you want to officially close this letter?
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border bg-slate-50 p-3 text-sm">
@@ -224,7 +347,12 @@ export function ClosurePanel({
             </Button>
             <Button
               type="button"
-              disabled={busy !== null || closeC.trim().length < 3}
+              disabled={
+                busy !== null ||
+                closeC.trim().length < 3 ||
+                !hasSolutionEvidence ||
+                !canOfficialClose
+              }
               onClick={() => {
                 void run("close", () => closeIssue(letterId, closeC.trim()), () => {
                   setCloseC("");
@@ -232,7 +360,7 @@ export function ClosurePanel({
                 });
               }}
             >
-              {busy === "close" ? "Closing…" : "Confirm close"}
+              {busy === "close" ? "Closing…" : "Closed"}
             </Button>
           </DialogFooter>
         </DialogContent>

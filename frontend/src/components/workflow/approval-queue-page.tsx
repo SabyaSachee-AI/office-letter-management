@@ -9,11 +9,13 @@ import { EmptyState } from "@/components/data/empty-state";
 import { ErrorBanner } from "@/components/data/error-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { PaginationBar } from "@/components/data/pagination-bar";
-import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/letter-badges";
+import { LetterPriorityBadge, VisibleWorkflowStatusBadge } from "@/components/letters/letter-badges";
+import { getVisibleWorkflowStatus } from "@/lib/workflow-display";
 import { LetterFilterBar } from "@/components/letters/letter-filter-bar";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { getApprovalQueue } from "@/lib/api/workflow";
+import { APPROVAL_QUEUE_STATUS_OPTIONS } from "@/lib/workflow-display";
 import type { ApprovalQueueItem } from "@/types/letter";
 
 const PAGE = 20;
@@ -112,7 +114,15 @@ export function ApprovalQueuePage() {
     {
       id: "status",
       header: "Status",
-      cell: (l) => <LetterStatusBadge status={l.status} />,
+      cell: (l) => {
+        const visible = getVisibleWorkflowStatus(l);
+        return (
+          <div className="space-y-1">
+            <VisibleWorkflowStatusBadge letter={l} />
+            <p className="text-muted-foreground text-[11px]">{visible.currentHolderLabel}</p>
+          </div>
+        );
+      },
     },
     {
       id: "priority",
@@ -140,10 +150,7 @@ export function ApprovalQueuePage() {
     },
   ];
 
-  const STATUS_OPTS = [
-    { value: "received", label: "Received" },
-    { value: "returned_for_correction", label: "Returned" },
-  ];
+  const STATUS_OPTS = [...APPROVAL_QUEUE_STATUS_OPTIONS];
 
   return (
     <div className="space-y-6">

@@ -29,17 +29,18 @@ import { fetchDepartments } from "@/lib/api/users";
 import {
   canApprovalActions,
   canAssignConsultant,
-  canClosure,
   hasRole,
   isAdmin,
   isReceivingOfficer,
   workflowDepartmentId,
 } from "@/lib/auth/roles";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   buildConsultantSolutionSummary,
   consultantWorkReadyForClosure,
   lastTeamLeaderAssignmentAction,
 } from "@/lib/letter-workflow";
+import { getVisibleWorkflowStatus } from "@/lib/workflow-display";
 import { cn } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { AssignmentOut, ClosureHistoryResponse, LetterOut } from "@/types/letter";
@@ -167,6 +168,11 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
   }
 
   const activeAssignment = assignments.find((a) => a.is_active) ?? null;
+  const visibleWorkflow = getVisibleWorkflowStatus(
+    letter,
+    activeAssignment ?? null,
+    { preferPendingFinalClosure: true }
+  );
   const admin = isAdmin(me);
   const isAssignedWorkflow = Boolean(letter.department);
   const assignmentMeta = [...history.actions]
@@ -190,15 +196,18 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
     !workflowLocked &&
     (letter.status === "received" || letter.status === "returned_for_correction");
 
+  const canApproveLetter = userHasPermission(me, "approval:approve");
+  const canRejectLetter = userHasPermission(me, "approval:reject");
+
   const closureReadiness = consultantWorkReadyForClosure(
     assignments,
     consultantSolutionSummary
   );
   const showClosurePanel =
-    canClosure(me) &&
+    closureReadiness &&
     !workflowLocked &&
     letter.status !== "rejected" &&
-    closureReadiness;
+    (userHasPermission(me, "closure:view") || Boolean(myConsultantAssignment));
 
   const consultantDeptId =
     workflowDepartmentId(me) ?? letter.department?.id ?? undefined;
@@ -321,7 +330,12 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                 <option value="urgent">Urgent</option>
               </select>
               <div className="flex flex-wrap gap-1">
-                <Button size="sm" className="h-7 text-xs" onClick={() => void submitAdminEdit()}>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={!userHasPermission(me, "letters:update")}
+                  onClick={() => void submitAdminEdit()}
+                >
                   Save
                 </Button>
                 <Button
@@ -340,6 +354,7 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs"
+                disabled={!userHasPermission(me, "letters:update")}
                 onClick={() => setEditing(true)}
               >
                 Edit letter
@@ -348,6 +363,7 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                 size="sm"
                 variant="destructive"
                 className="h-7 text-xs"
+                disabled={!userHasPermission(me, "letters:delete")}
                 onClick={() => void onDeleteByAdmin()}
               >
                 Delete
@@ -391,7 +407,7 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
         <div className="order-1 flex min-h-0 min-w-0 flex-col gap-6 lg:col-span-8">
           <LetterAttachmentPreviewPane letterId={letter.id} pdfPath={letter.pdf_path} />
           <div className="space-y-4 border-t border-slate-200/80 pt-2">
-            <LetterStatusTimeline status={letter.status} />
+            <LetterStatusTimeline letter={letter} latestAssignment={activeAssignment} />
             <WorkflowCommentBlocks actions={history.actions} />
           </div>
         </div>
@@ -399,20 +415,19 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
         <aside
           className={cn(
             "order-2 flex min-w-0 flex-col gap-4 lg:col-span-4 lg:self-start",
-            // Consultant letter review: full sidebar height, page scroll only (no inner scrollbar).
-            showConsultantWork
-              ? "h-auto min-h-0 overflow-visible pb-10 lg:overflow-visible lg:pb-16"
-              : "min-h-0 lg:sticky lg:top-20 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto lg:overflow-x-hidden lg:overscroll-y-contain lg:pr-1 lg:pb-12"
+            /* Full column height with document scroll only — no nested sidebar scrollbar */
+            "overflow-visible pb-10 lg:pb-16"
           )}
         >
-          <LetterCompactSummary letter={letter} adminSection={adminSummarySection} />
+          <LetterCompactSummary
+            letter={letter}
+            adminSection={adminSummarySection}
+            workflowLabel={visibleWorkflow.visibleLabel}
+            currentHolderLabel={visibleWorkflow.currentHolderLabel}
+            internalStatus={visibleWorkflow.internalStatus}
+          />
 
-          <div
-            className={cn(
-              "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm",
-              showConsultantWork && "h-auto overflow-visible"
-            )}
-          >
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="border-b border-slate-100 pb-3">
               <h2 className="text-xs font-semibold tracking-wide text-[#123f63] uppercase">
                 Workflow &amp; actions
@@ -464,6 +479,12 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
               {showApprovalActions ? (
                 <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/60">
                   <p className="text-xs font-semibold text-[#123f63]">Your decision</p>
+                  {!canApproveLetter && !canRejectLetter ? (
+                    <p className="text-muted-foreground text-xs leading-relaxed">
+                      You can view this letter&apos;s approval context but do not have permission to
+                      approve or reject.
+                    </p>
+                  ) : null}
                   <div className="grid gap-1">
                     <label htmlFor="approval-note" className="text-sm font-medium">
                       Workflow note
@@ -522,7 +543,11 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button
                       size="sm"
-                      disabled={approvalPending || approvalNote.trim().length < 2}
+                      disabled={
+                        approvalPending ||
+                        approvalNote.trim().length < 2 ||
+                        !canApproveLetter
+                      }
                       onClick={() => void submitApproval("approve")}
                     >
                       Assign department / Approve
@@ -530,7 +555,11 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                     <Button
                       size="sm"
                       variant="destructive"
-                      disabled={approvalPending || approvalNote.trim().length < 2}
+                      disabled={
+                        approvalPending ||
+                        approvalNote.trim().length < 2 ||
+                        !canRejectLetter
+                      }
                       onClick={() => void submitApproval("reject")}
                     >
                       Reject
@@ -573,6 +602,60 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                   onChanged={() => void refresh()}
                   consultantSolutionSummary={consultantSolutionSummary}
                   solutionReviewed={solutionReviewed}
+                  canReviewSolution={userHasPermission(me, "closure:review")}
+                  canSaveFinalRemark={userHasPermission(me, "closure:review")}
+                  canOfficialClose={userHasPermission(me, "closure:close")}
+                  consultantWorkEvidenceReady={Boolean(
+                    activeAssignment &&
+                      (activeAssignment.work_status === "resolved" ||
+                        Boolean((activeAssignment.resolution_note ?? "").trim()) ||
+                        Boolean(activeAssignment.has_solution_file))
+                  )}
+                  approvalNote={
+                    assignmentMeta
+                      ? {
+                          comment: assignmentMeta.comment,
+                          actor:
+                            assignmentMeta.acted_by_full_name ||
+                            assignmentMeta.acted_by_email ||
+                            `User #${assignmentMeta.acted_by}`,
+                          department: letter.department
+                            ? `${letter.department.name} (${letter.department.code})`
+                            : "—",
+                          timestamp: assignmentMeta.created_at,
+                        }
+                      : null
+                  }
+                  teamLeaderNote={
+                    lastTlAction
+                      ? {
+                          comment: lastTlAction.comment,
+                          actor:
+                            lastTlAction.acted_by_full_name ||
+                            lastTlAction.acted_by_email ||
+                            `User #${lastTlAction.acted_by}`,
+                          assignedTo:
+                            activeAssignment?.consultant_user?.full_name ||
+                            `User #${activeAssignment?.consultant_id ?? "-"}`,
+                          timestamp: lastTlAction.created_at,
+                        }
+                      : null
+                  }
+                  consultantNote={
+                    activeAssignment
+                      ? {
+                          note: activeAssignment.resolution_note,
+                          hasFile: Boolean(activeAssignment.has_solution_file),
+                          resolvedBy:
+                            activeAssignment.consultant_user?.full_name ||
+                            `User #${activeAssignment.consultant_id}`,
+                          resolvedAt:
+                            activeAssignment.latest_solution_file_uploaded_at ??
+                            activeAssignment.updated_at,
+                          workStatus: activeAssignment.work_status,
+                        }
+                      : null
+                  }
                 />
               ) : null}
 

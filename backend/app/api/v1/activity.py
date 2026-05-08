@@ -3,11 +3,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_roles, require_screen
-from app.rbac.roles import ALL_ROLES, Roles
-from app.rbac.screens import ScreenKey
+from app.rbac.guards import require_any_permission, require_roles
+from app.rbac.permissions import PermissionKey
+from app.rbac.roles import Roles
 from app.schemas.activity import (
     AuditLogListResponse,
     AuditLogOut,
@@ -22,7 +23,7 @@ from app.services.activity_service import ActivityService
 router = APIRouter(prefix="/activity", tags=["activity"])
 
 AdminOnly = [
-    Depends(require_screen(ScreenKey.SECURITY)),
+    Depends(require_any_permission(PermissionKey.SECURITY_VIEW)),
     Depends(require_roles(Roles.SYSTEM_ADMIN)),
 ]
 
@@ -70,11 +71,11 @@ def list_login_logs(
 @router.get(
     "/notifications",
     response_model=NotificationListResponse,
-    dependencies=[Depends(require_screen(ScreenKey.NOTIFICATIONS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.NOTIFICATIONS_VIEW))],
 )
 def my_notifications(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    current_user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     unread_only: bool = Query(default=False),
@@ -94,12 +95,12 @@ def my_notifications(
 @router.patch(
     "/notifications/{notification_id}/read",
     response_model=NotificationOut,
-    dependencies=[Depends(require_screen(ScreenKey.NOTIFICATIONS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.NOTIFICATIONS_VIEW))],
 )
 def mark_notification_read(
     notification_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> NotificationOut:
     service = ActivityService(db)
     note = service.mark_notification_read(notification_id, current_user.id)
@@ -111,11 +112,11 @@ def mark_notification_read(
 @router.post(
     "/notifications/mark-all-read",
     response_model=MarkAllReadResult,
-    dependencies=[Depends(require_screen(ScreenKey.NOTIFICATIONS))],
+    dependencies=[Depends(require_any_permission(PermissionKey.NOTIFICATIONS_VIEW))],
 )
 def mark_all_notifications_read(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(*ALL_ROLES))],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> MarkAllReadResult:
     service = ActivityService(db)
     n = service.mark_all_notifications_read(current_user.id)

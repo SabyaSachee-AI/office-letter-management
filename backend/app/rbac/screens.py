@@ -2,12 +2,21 @@
 
 from typing import Final
 
-# Align with permission matrix columns (Overview = dashboard home).
+from app.rbac.permissions import (
+    PermissionKey as PK,
+    PERMISSION_MATRIX_COLUMNS,
+    all_known_permission_keys,
+    expand_legacy_letters,
+    expand_permission_keys,
+)
+
+
 class ScreenKey:
+    """Stable route-guard aliases. Module strings remain valid in stored role grants."""
+
     DASHBOARD = "dashboard"
-    # Split letter access: view vs register (create)
-    LETTERS_VIEW = "letters:view"
-    LETTERS_CREATE = "letters:create"
+    LETTERS_VIEW = PK.LETTERS_VIEW
+    LETTERS_CREATE = PK.LETTERS_CREATE
     APPROVAL = "approval"
     ASSIGNMENT = "assignment"
     CONSULTANT = "consultant"
@@ -19,55 +28,28 @@ class ScreenKey:
     ROLE_MANAGEMENT = "role_management"
 
 
-# DB rows may still use this from older seeds; treated as both view + create.
 LEGACY_LETTERS_SCREEN_KEY: Final[str] = "letters"
 
 
-MATRIX_COLUMNS: Final[list[tuple[str, str]]] = [
-    (ScreenKey.DASHBOARD, "Dashboard"),
-    (ScreenKey.LETTERS_VIEW, "Letters (view only)"),
-    (ScreenKey.LETTERS_CREATE, "Letters (create)"),
-    (ScreenKey.APPROVAL, "Approval"),
-    (ScreenKey.ASSIGNMENT, "Assignment"),
-    (ScreenKey.CONSULTANT, "Consultant"),
-    (ScreenKey.CLOSURE, "Closure"),
-    (ScreenKey.REPORTS, "Reports"),
-    (ScreenKey.USERS, "Users"),
-    (ScreenKey.NOTIFICATIONS, "Notifications"),
-    (ScreenKey.SECURITY, "Security Logs"),
-]
-
-ALL_SCREEN_KEYS: Final[tuple[str, ...]] = tuple(k for k, _ in MATRIX_COLUMNS) + (
-    ScreenKey.ROLE_MANAGEMENT,
-)
-
-
-def expand_legacy_letters(keys: set[str]) -> set[str]:
-    """Map legacy single 'letters' permission to view + create."""
-    out = set(keys)
-    if LEGACY_LETTERS_SCREEN_KEY in out:
-        out.discard(LEGACY_LETTERS_SCREEN_KEY)
-        out.add(ScreenKey.LETTERS_VIEW)
-        out.add(ScreenKey.LETTERS_CREATE)
-    return out
-
-
 def default_screen_matrix() -> dict[str, frozenset[str]]:
-    """role_name -> allowed screen keys (canonical role names)."""
+    """role_name -> allowed permission / screen keys (canonical role names)."""
     sk = ScreenKey
+    pk = PK
+    admin_keys = all_known_permission_keys()
     return {
         "Receiving Officer": frozenset(
             {
                 sk.DASHBOARD,
-                sk.LETTERS_VIEW,
-                sk.LETTERS_CREATE,
+                pk.LETTERS_VIEW,
+                pk.LETTERS_CREATE,
                 sk.NOTIFICATIONS,
+                pk.CLOSURE_VIEW,
             }
         ),
         "Approval Head-PEC": frozenset(
             {
                 sk.DASHBOARD,
-                sk.LETTERS_VIEW,
+                pk.LETTERS_VIEW,
                 sk.APPROVAL,
                 sk.NOTIFICATIONS,
             }
@@ -75,14 +57,29 @@ def default_screen_matrix() -> dict[str, frozenset[str]]:
         "Team Leader": frozenset(
             {
                 sk.DASHBOARD,
-                sk.LETTERS_VIEW,
+                pk.LETTERS_VIEW,
                 sk.ASSIGNMENT,
                 sk.CLOSURE,
                 sk.NOTIFICATIONS,
             }
         ),
         "Consultant": frozenset(
-            {sk.DASHBOARD, sk.CONSULTANT, sk.REPORTS, sk.NOTIFICATIONS}
+            {sk.DASHBOARD, sk.CONSULTANT, sk.CLOSURE, sk.REPORTS, sk.NOTIFICATIONS}
         ),
-        "System Admin": frozenset(ALL_SCREEN_KEYS),
+        "System Admin": frozenset(admin_keys),
     }
+
+
+def matrix_columns_flat() -> list[tuple[str, str]]:
+    """Flattened columns for simple tables: (key, header label)."""
+    return [(key, f"{group} — {label}") for group, key, label in PERMISSION_MATRIX_COLUMNS]
+
+
+def grants_for_matrix_response(raw_keys: set[str]) -> list[str]:
+    """Checkbox state for Role Management (legacy module rows imply granular ticks)."""
+    return sorted(expand_permission_keys(expand_legacy_letters(set(raw_keys))))
+
+
+# Back-compat re-exports
+MATRIX_COLUMNS: Final[list[tuple[str, str]]] = matrix_columns_flat()
+ALL_SCREEN_KEYS: Final[tuple[str, ...]] = tuple(sorted(all_known_permission_keys()))

@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_any_screen, require_roles, require_screen
+from app.rbac.guards import require_any_permission, require_roles
+from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
-from app.rbac.screens import ScreenKey
 from app.schemas.assignment import (
     AssignmentOut,
     AssignmentTrackingOut,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/assignments", tags=["assignments"])
     "/letters/{letter_id}/assign",
     response_model=AssignmentOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_screen(ScreenKey.ASSIGNMENT))],
+    dependencies=[Depends(require_any_permission(PermissionKey.ASSIGNMENT_ASSIGN))],
 )
 def assign_consultant(
     letter_id: int,
@@ -54,7 +54,11 @@ def assign_consultant(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/letters/{letter_id}/reassign", response_model=AssignmentOut)
+@router.post(
+    "/letters/{letter_id}/reassign",
+    response_model=AssignmentOut,
+    dependencies=[Depends(require_any_permission(PermissionKey.ASSIGNMENT_REASSIGN))],
+)
 def reassign_consultant(
     letter_id: int,
     payload: ReassignConsultantIn,
@@ -88,11 +92,11 @@ def reassign_consultant(
     response_model=AssignmentTrackingOut,
     dependencies=[
         Depends(
-            require_any_screen(
-                ScreenKey.ASSIGNMENT,
-                ScreenKey.LETTERS_VIEW,
-                ScreenKey.CONSULTANT,
-                ScreenKey.APPROVAL,
+            require_any_permission(
+                PermissionKey.ASSIGNMENT_VIEW,
+                PermissionKey.LETTERS_VIEW,
+                PermissionKey.CONSULTANT_VIEW,
+                PermissionKey.APPROVAL_VIEW,
             )
         )
     ],

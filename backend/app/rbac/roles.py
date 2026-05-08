@@ -10,6 +10,33 @@ class Roles:
     APPROVAL_HEAD = APPROVAL_HEAD_PEC
 
 
+# Cannot be used as custom role codes (uppercase slugs).
+RESERVED_ROLE_CODES: frozenset[str] = frozenset(
+    {
+        "SYSTEM_ADMIN",
+        "ADMIN",
+        "RECEIVING_OFFICER",
+        "APPROVAL_HEAD_PEC",
+        "APPROVAL_HEAD",
+        "TEAM_LEADER",
+        "CONSULTANT",
+    }
+)
+
+# Cannot be used as custom role display names (case-insensitive).
+RESERVED_ROLE_DISPLAY_NAMES_LOWER: frozenset[str] = frozenset(
+    {
+        "system admin",
+        "admin",
+        "receiving officer",
+        "approval head-pec",
+        "approval head",
+        "team leader",
+        "consultant",
+    }
+)
+
+
 # Ordered for dropdowns / Role Management
 ALL_ROLES: tuple[str, ...] = (
     Roles.RECEIVING_OFFICER,
@@ -18,6 +45,16 @@ ALL_ROLES: tuple[str, ...] = (
     Roles.CONSULTANT,
     Roles.SYSTEM_ADMIN,
 )
+
+# Stable codes for seeded system roles (database ``roles.code``).
+SYSTEM_ROLE_CODE_BY_DISPLAY_NAME: dict[str, str] = {
+    Roles.RECEIVING_OFFICER: "RECEIVING_OFFICER",
+    Roles.APPROVAL_HEAD_PEC: "APPROVAL_HEAD_PEC",
+    Roles.TEAM_LEADER: "TEAM_LEADER",
+    Roles.CONSULTANT: "CONSULTANT",
+    Roles.SYSTEM_ADMIN: "SYSTEM_ADMIN",
+}
+
 
 # Legacy DB / token values still accepted by guards
 LEGACY_ROLE_NAMES: dict[str, frozenset[str]] = {

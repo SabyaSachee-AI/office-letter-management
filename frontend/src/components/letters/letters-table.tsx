@@ -5,8 +5,9 @@ import Link from "next/link";
 import { LetterAttachmentPreviewButton } from "@/components/attachments/letter-attachment-preview-button";
 import { DataTable, type DataTableColumn } from "@/components/data/data-table";
 import { EmptyState } from "@/components/data/empty-state";
-import { LetterPriorityBadge, LetterStatusBadge } from "@/components/letters/letter-badges";
+import { LetterPriorityBadge, VisibleWorkflowStatusBadge } from "@/components/letters/letter-badges";
 import { buttonVariants } from "@/components/ui/button";
+import { getVisibleWorkflowStatus } from "@/lib/workflow-display";
 import { cn } from "@/lib/utils";
 import type { LetterOut } from "@/types/letter";
 
@@ -78,7 +79,15 @@ export function LettersTable({
     {
       id: "status",
       header: "Status",
-      cell: (l) => <LetterStatusBadge status={l.status} />,
+      cell: (l) => {
+        const visible = getVisibleWorkflowStatus(l, l.latest_assignment ?? null);
+        return (
+          <div className="space-y-1">
+            <VisibleWorkflowStatusBadge letter={l} latestAssignment={l.latest_assignment ?? null} />
+            <p className="text-muted-foreground text-[11px]">{visible.currentHolderLabel}</p>
+          </div>
+        );
+      },
     },
     {
       id: "attachment",

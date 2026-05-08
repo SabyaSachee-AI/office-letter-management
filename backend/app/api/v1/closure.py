@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.rbac.guards import require_any_screen, require_roles, require_screen
+from app.rbac.guards import require_any_permission, require_closure_close_actor, require_closure_review_actor, require_roles
+from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
-from app.rbac.screens import ScreenKey
 from app.schemas.closure import (
     CloseIssueIn,
     ClosureHistoryOut,
@@ -32,13 +32,13 @@ def _map_closure_value_error(exc: ValueError) -> HTTPException:
 @router.post(
     "/letters/{letter_id}/review-solution",
     response_model=LetterOut,
-    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+    dependencies=[Depends(require_any_permission(PermissionKey.CLOSURE_REVIEW))],
 )
 def review_solution(
     letter_id: int,
     payload: ReviewSolutionIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_closure_review_actor())],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -59,13 +59,13 @@ def review_solution(
 @router.post(
     "/letters/{letter_id}/final-comment",
     response_model=LetterOut,
-    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+    dependencies=[Depends(require_any_permission(PermissionKey.CLOSURE_REVIEW))],
 )
 def add_final_comment(
     letter_id: int,
     payload: FinalCommentIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_closure_review_actor())],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -86,13 +86,13 @@ def add_final_comment(
 @router.post(
     "/letters/{letter_id}/close",
     response_model=LetterOut,
-    dependencies=[Depends(require_screen(ScreenKey.CLOSURE))],
+    dependencies=[Depends(require_any_permission(PermissionKey.CLOSURE_CLOSE))],
 )
 def close_issue(
     letter_id: int,
     payload: CloseIssueIn,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(Roles.ADMIN, Roles.TEAM_LEADER))],
+    current_user: Annotated[User, Depends(require_closure_close_actor())],
 ) -> LetterOut:
     service = ClosureService(db)
     try:
@@ -115,11 +115,11 @@ def close_issue(
     response_model=ClosureHistoryOut,
     dependencies=[
         Depends(
-            require_any_screen(
-                ScreenKey.CLOSURE,
-                ScreenKey.LETTERS_VIEW,
-                ScreenKey.CONSULTANT,
-                ScreenKey.APPROVAL,
+            require_any_permission(
+                PermissionKey.CLOSURE_VIEW,
+                PermissionKey.LETTERS_VIEW,
+                PermissionKey.CONSULTANT_VIEW,
+                PermissionKey.APPROVAL_VIEW,
             )
         )
     ],
