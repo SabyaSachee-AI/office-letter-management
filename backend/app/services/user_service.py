@@ -413,7 +413,14 @@ class UserService:
         if q:
             qq = f"%{q.strip()}%"
             stmt = stmt.where(or_(User.full_name.ilike(qq), User.email.ilike(qq), User.username.ilike(qq)))
-        return list(self.db.scalars(stmt).all())
+        rows = list(self.db.scalars(stmt).all())
+
+        def _sort_key(u: User) -> tuple[int, str]:
+            tl = has_role_name(u, Roles.TEAM_LEADER)
+            return (0 if tl else 1, (u.full_name or "").lower())
+
+        rows.sort(key=_sort_key)
+        return rows
 
     def list_consultants_directory(
         self,

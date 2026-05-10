@@ -69,17 +69,25 @@ function departmentForwardLabel(departmentName?: string | null): string {
   return `Forwarded to ${n}`;
 }
 
-function consultantHolder(assignment?: MinimalAssignment | null): string {
+function assigneeIsTeamLeader(assignment?: MinimalAssignment | null): boolean {
+  const roles = assignment?.consultant_user?.roles ?? [];
+  return roles.some((r) => r === "Team Leader");
+}
+
+function activeAssigneeHolder(assignment?: MinimalAssignment | null): string {
   const who = assignment?.consultant_user?.full_name?.trim();
   const dept = assignment?.consultant_user?.department?.name?.trim();
-  if (!who) return "Assigned Consultant";
-  return dept ? `${who} - Consultant - ${dept}` : `${who} - Consultant`;
+  const roleLabel = assigneeIsTeamLeader(assignment) ? "Team Leader" : "Consultant";
+  if (!who) return assigneeIsTeamLeader(assignment) ? "Assigned Team Leader" : "Assigned Consultant";
+  return dept ? `${who} - ${roleLabel} - ${dept}` : `${who} - ${roleLabel}`;
 }
 
 export function getVisibleWorkflowStatus(
   letter: MinimalLetter,
   latestAssignment?: MinimalAssignment | null,
-  options?: { preferPendingFinalClosure?: boolean }
+  options?: {
+    preferPendingFinalClosure?: boolean;
+  }
 ): VisibleWorkflowStatus {
   const hasClosureEvidence = Boolean(
     latestAssignment &&
@@ -128,7 +136,8 @@ export function getVisibleWorkflowStatus(
     return {
       internalStatus,
       visibleLabel: "Reassigned for Further Action",
-      description: "Assignment has been transferred to another consultant.",
+      description:
+        "Assignment has been transferred or forwarded to another Consultant or Team Leader.",
       color: VISIBLE_STATUS_BADGE_TONES.reassigned_for_further_action,
       currentHolderLabel: "Concern Department / Team Leader",
       stageKey: "reassigned_for_further_action",
@@ -139,20 +148,25 @@ export function getVisibleWorkflowStatus(
     return {
       internalStatus,
       visibleLabel: "Under Investigation",
-      description: "Consultant has started working on this letter.",
+      description: assigneeIsTeamLeader(latestAssignment)
+        ? "Team Leader is reviewing this letter."
+        : "Consultant has started working on this letter.",
       color: VISIBLE_STATUS_BADGE_TONES.under_investigation,
-      currentHolderLabel: consultantHolder(latestAssignment),
+      currentHolderLabel: activeAssigneeHolder(latestAssignment),
       stageKey: "under_investigation",
     };
   }
 
   if (latestAssignment?.work_status === "assigned") {
+    const toTl = assigneeIsTeamLeader(latestAssignment);
     return {
       internalStatus,
-      visibleLabel: "Assigned to Consultant",
-      description: "Team Leader has assigned the letter for processing.",
+      visibleLabel: toTl ? "Assigned to Team Leader" : "Assigned to Consultant",
+      description: toTl
+        ? "The letter is with a Team Leader for triage or reassignment."
+        : "Team Leader has assigned the letter for processing.",
       color: VISIBLE_STATUS_BADGE_TONES.assigned_to_consultant,
-      currentHolderLabel: consultantHolder(latestAssignment),
+      currentHolderLabel: activeAssigneeHolder(latestAssignment),
       stageKey: "assigned_to_consultant",
     };
   }
@@ -185,14 +199,25 @@ export function getVisibleWorkflowStatus(
   }
 
   if (letter.status === "processed" || letter.status === "under_review") {
+    const hasActiveAssignee = Boolean(latestAssignment);
+    const deptName = letter.department?.name?.trim();
+    const poolLabel = deptName
+      ? `${deptName} Team Leaders`
+      : "Concern Department Team Leaders";
     return {
       internalStatus,
-      visibleLabel: departmentForwardLabel(letter.department?.name),
-      description: "PEC has forwarded this letter to the concerned department.",
+      visibleLabel: hasActiveAssignee
+        ? departmentForwardLabel(letter.department?.name)
+        : "Pending Team Leader Assignment",
+      description: hasActiveAssignee
+        ? "PEC has forwarded this letter to the concerned department."
+        : "Forwarded to your department. Assign or forward to a Team Leader or Consultant when ready.",
       color: VISIBLE_STATUS_BADGE_TONES.forwarded_to_department,
-      currentHolderLabel: letter.department?.name
-        ? `${letter.department.name} Team Leader`
-        : "Concern Department / Team Leader",
+      currentHolderLabel: hasActiveAssignee
+        ? deptName
+          ? `${deptName} Team Leader`
+          : "Concern Department / Team Leader"
+        : poolLabel,
       stageKey: "forwarded_to_department",
     };
   }

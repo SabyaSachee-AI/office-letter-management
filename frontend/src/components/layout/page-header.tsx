@@ -4,6 +4,8 @@ type PageHeaderProps = {
   title: string;
   description?: string;
   actions?: React.ReactNode;
+  /** Merged into the actions wrapper (e.g. `print:hidden`). */
+  actionsClassName?: string;
   className?: string;
 };
 
@@ -11,6 +13,7 @@ export function PageHeader({
   title,
   description,
   actions,
+  actionsClassName,
   className,
 }: PageHeaderProps) {
   return (
@@ -31,7 +34,14 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+        <div
+          className={cn(
+            "flex shrink-0 flex-wrap items-center gap-2",
+            actionsClassName
+          )}
+        >
+          {actions}
+        </div>
       ) : null}
     </div>
   );

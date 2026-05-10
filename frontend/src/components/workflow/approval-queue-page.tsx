@@ -77,7 +77,7 @@ export function ApprovalQueuePage() {
       header: "Serial No",
       cell: (l) => (
         <Link
-          href={`/dashboard/letters/${l.id}`}
+          href={`/dashboard/approval/${l.id}`}
           className="text-primary font-medium hover:underline"
         >
           {l.serial_no}
@@ -141,7 +141,7 @@ export function ApprovalQueuePage() {
       header: "View",
       className: "w-32",
       cell: (l) => (
-        <Link href={`/dashboard/letters/${l.id}`}>
+        <Link href={`/dashboard/approval/${l.id}`}>
           <Button size="sm" variant="outline">
             View
           </Button>

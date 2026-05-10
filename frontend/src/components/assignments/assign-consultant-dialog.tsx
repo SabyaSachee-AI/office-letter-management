@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api/error-message";
-import { toastSuccess } from "@/lib/toast";
 import { assignConsultant, reassignConsultant } from "@/lib/api/assignments";
 import { listAssignableWorkflowUsers } from "@/lib/api/users";
+import { assignForwardRecipientLabel, primaryWorkflowRoleLabel } from "@/lib/workflow-user-label";
+import { toastSuccess } from "@/lib/toast";
 import type { UserOut } from "@/types/user";
 
 type AssignConsultantDialogProps = {
@@ -43,26 +44,35 @@ export function AssignConsultantDialog({
   mode,
   onSuccess,
 }: AssignConsultantDialogProps) {
-  const [consultants, setConsultants] = useState<UserOut[]>([]);
-  const [consultantId, setConsultantId] = useState("");
+  const [users, setUsers] = useState<UserOut[]>([]);
+  const [recipientId, setRecipientId] = useState("");
   const [deadline, setDeadline] = useState("");
   const [comment, setComment] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const teamLeaders = useMemo(
+    () => users.filter((u) => primaryWorkflowRoleLabel(u) === "Team Leader"),
+    [users]
+  );
+  const consultants = useMemo(
+    () => users.filter((u) => primaryWorkflowRoleLabel(u) === "Consultant"),
+    [users]
+  );
 
   useEffect(() => {
     if (!open) return;
     setError(null);
     setComment("");
     setDeadline("");
-    setConsultantId("");
+    setRecipientId("");
     let cancelled = false;
     (async () => {
       try {
         const items = await listAssignableWorkflowUsers();
-        if (!cancelled) setConsultants(items);
+        if (!cancelled) setUsers(items);
       } catch {
-        if (!cancelled) setConsultants([]);
+        if (!cancelled) setUsers([]);
       }
     })();
     return () => {
@@ -73,38 +83,39 @@ export function AssignConsultantDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const cid = Number(consultantId);
+    const cid = Number(recipientId);
     if (!cid) {
-      setError("Select a consultant.");
+      setError("Select a recipient.");
       return;
     }
-    if (!deadline.trim()) {
-      setError("Deadline is required.");
+    if (comment.trim().length < 2) {
+      setError("Workflow note / comment must be at least 2 characters.");
       return;
     }
-    let deadlineIso: string;
-    try {
-      deadlineIso = toIsoDeadline(deadline);
-    } catch {
-      setError("Invalid deadline.");
-      return;
+    let deadlineIso: string | null | undefined;
+    if (deadline.trim()) {
+      try {
+        deadlineIso = toIsoDeadline(deadline);
+      } catch {
+        setError("Invalid deadline.");
+        return;
+      }
+    } else {
+      deadlineIso = undefined;
     }
     setPending(true);
     try {
+      const body = {
+        target_user_id: cid,
+        deadline_at: deadlineIso ?? null,
+        comment: comment.trim(),
+      };
       if (mode === "assign") {
-        await assignConsultant(letterId, {
-          consultant_id: cid,
-          deadline_at: deadlineIso,
-          comment: comment.trim() || "—",
-        });
+        await assignConsultant(letterId, body);
       } else {
-        await reassignConsultant(letterId, {
-          consultant_id: cid,
-          deadline_at: deadlineIso,
-          comment: comment.trim() || "—",
-        });
+        await reassignConsultant(letterId, body);
       }
-      toastSuccess(mode === "assign" ? "Consultant assigned successfully." : "Consultant reassigned successfully.");
+      toastSuccess(mode === "assign" ? "Assignment saved successfully." : "Letter forwarded successfully.");
       onOpenChange(false);
       onSuccess();
     } catch (err) {
@@ -119,11 +130,10 @@ export function AssignConsultantDialog({
       <DialogContent className="max-w-md">
         <form onSubmit={(e) => void handleSubmit(e)}>
           <DialogHeader>
-            <DialogTitle>
-              {mode === "assign" ? "Assign / Forward letter" : "Reassign / Forward letter"}
-            </DialogTitle>
+            <DialogTitle>Assign / Forward</DialogTitle>
             <DialogDescription>
-              Choose any active Consultant or Team Leader from any department.
+              Choose any active Team Leader or Consultant from any department. Department is
+              informational only.
             </DialogDescription>
           </DialogHeader>
 
@@ -135,50 +145,68 @@ export function AssignConsultantDialog({
             ) : null}
 
             <div className="grid gap-2">
-              <Label htmlFor="consultant">Assign To</Label>
+              <Label htmlFor="recipient">Recipient</Label>
               <select
-                id="consultant"
-                title="Assign To"
+                id="recipient"
+                title="Recipient"
                 className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                value={consultantId}
-                onChange={(e) => setConsultantId(e.target.value)}
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value)}
                 required
               >
                 <option value="">Select…</option>
-                {consultants.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} — {u.roles.map((r) => r.name).join(", ")} — {u.department?.name ?? "No Department"} — {u.email}
-                  </option>
-                ))}
+                {teamLeaders.length > 0 ? (
+                  <optgroup label="Team Leaders">
+                    {teamLeaders.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {assignForwardRecipientLabel(u)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {consultants.length > 0 ? (
+                  <optgroup label="Consultants">
+                    {consultants.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {assignForwardRecipientLabel(u)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </div>
 
-            <FormField id="deadline" label="Deadline" error={null}>
+            <FormField id="deadline" label="Deadline (optional)" error={null}>
               <Input
                 id="deadline"
                 type="datetime-local"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
-                required
               />
             </FormField>
 
-            <FormField id="comment" label="Comment" error={null}>
-              <Input
+            <div className="grid gap-2">
+              <Label htmlFor="comment">Workflow note / comment</Label>
+              <textarea
                 id="comment"
+                title="Workflow note"
+                className="border-input bg-background min-h-[80px] w-full rounded-md border px-3 py-2 text-sm"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Optional note"
+                placeholder="Required (min 2 characters)"
               />
-            </FormField>
+            </div>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Saving…" : mode === "assign" ? "Assign" : "Reassign"}
+            <Button
+              type="submit"
+              disabled={pending || comment.trim().length < 2 || !recipientId}
+            >
+              {pending ? "Saving…" : mode === "assign" ? "Assign" : "Forward"}
             </Button>
           </DialogFooter>
         </form>

@@ -4,19 +4,22 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.letter_access import (
     assert_user_can_create_in_department,
     can_view_letter,
+    is_admin,
     letter_visibility_clause,
 )
 from app.core.upload_utils import save_upload_streaming
 from app.models.department import Department
-from app.models.letter import Letter, LetterPriority, LetterStatus
+from app.models.letter import Letter, LetterAssignment, LetterPriority, LetterStatus
 from app.models.user import User
+from app.rbac.roles import Roles, has_role_name, is_system_admin
+from app.services.letter_list_order import apply_letters_newest_activity_order
 
 
 class LetterService:
@@ -159,8 +162,18 @@ class LetterService:
             base = base.where(Letter.priority == priority)
             count_base = count_base.where(Letter.priority == priority)
         if department_id is not None:
-            base = base.where(Letter.department_id == department_id)
-            count_base = count_base.where(Letter.department_id == department_id)
+            dept_match = Letter.department_id == department_id
+            if is_system_admin(viewer):
+                dept_clause = dept_match
+            else:
+                # Any assignment row (active or historical) so closed letters still list under
+                # the viewer's department filter when letter.department_id is another department.
+                assignee_match = Letter.id.in_(
+                    select(LetterAssignment.letter_id).where(LetterAssignment.consultant_id == viewer.id)
+                )
+                dept_clause = or_(dept_match, assignee_match)
+            base = base.where(dept_clause)
+            count_base = count_base.where(dept_clause)
         if unassigned_only:
             base = base.where(Letter.department_id.is_(None))
             count_base = count_base.where(Letter.department_id.is_(None))
@@ -198,7 +211,127 @@ class LetterService:
         total = self.db.scalar(count_base) or 0
         items = list(
             self.db.scalars(
-                base.order_by(Letter.id.desc()).limit(limit).offset(offset)
+                apply_letters_newest_activity_order(base).limit(limit).offset(offset)
+            ).all()
+        )
+        return items, total
+
+    def list_assignment_queue_letters(
+        self,
+        viewer: User,
+        limit: int,
+        offset: int,
+        *,
+        status: LetterStatus | None = None,
+        priority: LetterPriority | None = None,
+        department_id: int | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        from_office: str | None = None,
+        q: str | None = None,
+    ) -> tuple[list[Letter], int]:
+        """Letters with an active route to the viewer OR department-routed work for Team Leaders.
+
+        - Admin: any letter that has *some* active assignment (existing behavior).
+        - Team Leader: (A) active assignment where they are the recipient, OR (B) letter is
+          addressed to their ``team_department_id``, status is post-PEC routing, and no *other*
+          user holds an active assignment (so consultants / other TLs take priority when set).
+        - Others (e.g. assignment:view without TL): (A) only.
+        """
+        active_route = exists(
+            select(1)
+            .select_from(LetterAssignment)
+            .where(
+                LetterAssignment.letter_id == Letter.id,
+                LetterAssignment.is_active.is_(True),
+            )
+        )
+        active_assigned_to_me = exists(
+            select(1)
+            .select_from(LetterAssignment)
+            .where(
+                LetterAssignment.letter_id == Letter.id,
+                LetterAssignment.is_active.is_(True),
+                LetterAssignment.consultant_id == viewer.id,
+            )
+        )
+        other_active_holder = exists(
+            select(1)
+            .select_from(LetterAssignment)
+            .where(
+                LetterAssignment.letter_id == Letter.id,
+                LetterAssignment.is_active.is_(True),
+                LetterAssignment.consultant_id != viewer.id,
+            )
+        )
+        dept_routed_for_tl = and_(
+            Letter.department_id.is_not(None),
+            Letter.department_id == viewer.team_department_id,
+            Letter.status.in_(
+                (
+                    LetterStatus.PROCESSED,
+                    LetterStatus.UNDER_REVIEW,
+                    LetterStatus.RETURNED_FOR_CORRECTION,
+                )
+            ),
+            ~other_active_holder,
+        )
+
+        if is_admin(viewer):
+            route_clause = active_route
+        elif has_role_name(viewer, Roles.TEAM_LEADER) and viewer.team_department_id is not None:
+            route_clause = or_(active_assigned_to_me, dept_routed_for_tl)
+        else:
+            route_clause = active_assigned_to_me
+
+        base = select(Letter).options(selectinload(Letter.department)).where(route_clause)
+        count_base = select(func.count(Letter.id)).select_from(Letter).where(route_clause)
+
+        if status is not None:
+            base = base.where(Letter.status == status)
+            count_base = count_base.where(Letter.status == status)
+        if priority is not None:
+            base = base.where(Letter.priority == priority)
+            count_base = count_base.where(Letter.priority == priority)
+        if department_id is not None:
+            base = base.where(Letter.department_id == department_id)
+            count_base = count_base.where(Letter.department_id == department_id)
+        if date_from is not None:
+            start = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+            base = base.where(Letter.created_at >= start)
+            count_base = count_base.where(Letter.created_at >= start)
+        if date_to is not None:
+            end = datetime(
+                date_to.year,
+                date_to.month,
+                date_to.day,
+                23,
+                59,
+                59,
+                999999,
+                tzinfo=timezone.utc,
+            )
+            base = base.where(Letter.created_at <= end)
+            count_base = count_base.where(Letter.created_at <= end)
+        if from_office:
+            from_office_q = f"%{from_office.strip()}%"
+            office_filter = Letter.received_from.ilike(from_office_q)
+            base = base.where(office_filter)
+            count_base = count_base.where(office_filter)
+        if q:
+            qv = f"%{q.strip()}%"
+            search_filter = or_(
+                Letter.serial_no.ilike(qv),
+                Letter.memo_no.ilike(qv),
+                Letter.subject.ilike(qv),
+            )
+            base = base.where(search_filter)
+            count_base = count_base.where(search_filter)
+
+        total = self.db.scalar(count_base) or 0
+        items = list(
+            self.db.scalars(
+                apply_letters_newest_activity_order(base).limit(limit).offset(offset)
             ).all()
         )
         return items, total

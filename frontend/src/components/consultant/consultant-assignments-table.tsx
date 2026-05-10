@@ -21,7 +21,7 @@ export function ConsultantAssignmentsTable({ rows, loading }: ConsultantAssignme
       header: "Serial",
       cell: (row) => (
         <Link
-          href={`/dashboard/letters/${row.letter_id}`}
+          href={`/dashboard/consultant/${row.letter_id}`}
           className="text-primary font-medium hover:underline"
         >
           {row.serial_no}
@@ -101,7 +101,7 @@ export function ConsultantAssignmentsTable({ rows, loading }: ConsultantAssignme
       className: "w-20",
       cell: (row) => (
         <Link
-          href={`/dashboard/letters/${row.letter_id}`}
+          href={`/dashboard/consultant/${row.letter_id}`}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}
         >
           View

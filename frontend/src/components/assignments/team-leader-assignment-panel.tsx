@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { assignConsultant, reassignConsultant } from "@/lib/api/assignments";
 import { listAssignableWorkflowUsers } from "@/lib/api/users";
 import { useAuth } from "@/context/auth-context";
 import { userHasPermission } from "@/lib/auth/permissions";
+import { assignForwardRecipientLabel, primaryWorkflowRoleLabel } from "@/lib/workflow-user-label";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { AssignmentOut, LetterActionHistoryItem } from "@/types/letter";
@@ -20,7 +21,10 @@ type TeamLeaderAssignmentPanelProps = {
   departmentId: number;
   activeAssignment: AssignmentOut | null;
   lastTeamLeaderAction: LetterActionHistoryItem | null;
-  onSuccess: () => void;
+  listHref?: string;
+  listLabel?: string;
+  /** Called after a successful assign/reassign; pass API assignment for optimistic UI merge if refresh fails. */
+  onSuccess: (assignment?: AssignmentOut) => void;
 };
 
 function toIsoDeadline(local: string): string {
@@ -34,6 +38,8 @@ export function TeamLeaderAssignmentPanel({
   departmentId,
   activeAssignment,
   lastTeamLeaderAction,
+  listHref = "/dashboard/letters",
+  listLabel = "Back to list",
   onSuccess,
 }: TeamLeaderAssignmentPanelProps) {
   const { user } = useAuth();
@@ -47,6 +53,15 @@ export function TeamLeaderAssignmentPanel({
   const [comment, setComment] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const teamLeaders = useMemo(
+    () => users.filter((u) => primaryWorkflowRoleLabel(u) === "Team Leader"),
+    [users]
+  );
+  const consultants = useMemo(
+    () => users.filter((u) => primaryWorkflowRoleLabel(u) === "Consultant"),
+    [users]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -73,47 +88,43 @@ export function TeamLeaderAssignmentPanel({
       return;
     }
     if (comment.trim().length < 2) {
-      const m = "Team Leader comment must be at least 2 characters.";
+      const m = "Workflow note / comment must be at least 2 characters.";
       setError(m);
       toastError(m);
       return;
     }
-    if (!deadline.trim()) {
-      const m = "Deadline is required.";
-      setError(m);
-      toastError(m);
-      return;
-    }
-    let deadlineIso: string;
-    try {
-      deadlineIso = toIsoDeadline(deadline);
-    } catch {
-      const m = "Invalid deadline.";
-      setError(m);
-      toastError(m);
-      return;
+    let deadlineIso: string | null | undefined;
+    if (deadline.trim()) {
+      try {
+        deadlineIso = toIsoDeadline(deadline);
+      } catch {
+        const m = "Invalid deadline.";
+        setError(m);
+        toastError(m);
+        return;
+      }
+    } else {
+      deadlineIso = undefined;
     }
     setPending(true);
     try {
+      let created: AssignmentOut | undefined;
+      const body = {
+        target_user_id: cid,
+        deadline_at: deadlineIso ?? null,
+        comment: comment.trim(),
+      };
       if (activeAssignment) {
-        await reassignConsultant(letterId, {
-          consultant_id: cid,
-          deadline_at: deadlineIso,
-          comment: comment.trim(),
-        });
+        created = await reassignConsultant(letterId, body);
         toastSuccess("Letter forwarded successfully.");
       } else {
-        await assignConsultant(letterId, {
-          consultant_id: cid,
-          deadline_at: deadlineIso,
-          comment: comment.trim(),
-        });
-        toastSuccess("Consultant assigned successfully.");
+        created = await assignConsultant(letterId, body);
+        toastSuccess("Assignment saved successfully.");
       }
       setComment("");
       setAssigneeId("");
       setDeadline("");
-      onSuccess();
+      onSuccess(created);
     } catch (e) {
       const m = getApiErrorMessage(e);
       setError(m);
@@ -126,10 +137,10 @@ export function TeamLeaderAssignmentPanel({
   return (
     <div className="space-y-3 rounded-lg border border-[#d7e6f6] bg-[#f8fbff] p-3 shadow-sm">
       <div>
-        <p className="text-sm font-semibold text-[#123f63]">Team Leader — Assign / forward</p>
+        <p className="text-sm font-semibold text-[#123f63]">Assign / Forward</p>
         <p className="text-muted-foreground mt-0.5 text-xs leading-snug">
-          Route this letter to a Consultant or Team Leader. Your comment is stored in the workflow
-          history.
+          Route this letter to any active Team Leader or Consultant in any department. Department is
+          informational only. Your workflow note is stored in history.
         </p>
       </div>
 
@@ -146,7 +157,7 @@ export function TeamLeaderAssignmentPanel({
           </p>
         </div>
       ) : (
-        <p className="text-muted-foreground text-xs">No prior team leader assignment on this letter.</p>
+        <p className="text-muted-foreground text-xs">No prior routing note on this letter.</p>
       )}
 
       {error ? (
@@ -157,36 +168,48 @@ export function TeamLeaderAssignmentPanel({
 
       {!canSubmit ? (
         <p className="text-muted-foreground text-xs">
-          You do not have permission to {activeAssignment ? "reassign" : "assign"} consultants for this
-          letter.
+          You do not have permission to {activeAssignment ? "forward" : "assign"} this letter.
         </p>
       ) : null}
 
       <div className="grid gap-2">
-        <Label htmlFor="tl-assignee">Assign to</Label>
+        <Label htmlFor="tl-assignee">Recipient</Label>
         <select
           id="tl-assignee"
-          title="Assign to"
+          title="Recipient"
           className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
           value={assigneeId}
           onChange={(e) => setAssigneeId(e.target.value)}
           disabled={!canSubmit}
         >
           <option value="">Select…</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.full_name} — {u.roles.map((r) => r.name).join(", ")} —{" "}
-              {u.department?.name ?? "No department"}
-            </option>
-          ))}
+          {teamLeaders.length > 0 ? (
+            <optgroup label="Team Leaders">
+              {teamLeaders.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {assignForwardRecipientLabel(u)}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          {consultants.length > 0 ? (
+            <optgroup label="Consultants">
+              {consultants.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {assignForwardRecipientLabel(u)}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
         </select>
       </div>
 
       <div className="grid gap-2">
-        <Label htmlFor="tl-deadline">Deadline</Label>
+        <Label htmlFor="tl-deadline">Deadline (optional)</Label>
         <input
           id="tl-deadline"
           type="datetime-local"
+          title="Deadline"
           className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
@@ -195,12 +218,12 @@ export function TeamLeaderAssignmentPanel({
       </div>
 
       <div className="grid gap-1">
-        <Label htmlFor="tl-comment">Team Leader comment / workflow note</Label>
+        <Label htmlFor="tl-comment">Workflow note / comment</Label>
         <textarea
           id="tl-comment"
-          title="Team Leader comment"
+          title="Workflow note"
           className="border-input bg-background min-h-[88px] w-full rounded-md border px-3 py-2 text-sm"
-          placeholder="Instructions for the assignee…"
+          placeholder="Required: context for the recipient (min 2 characters)…"
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           disabled={!canSubmit}
@@ -210,22 +233,13 @@ export function TeamLeaderAssignmentPanel({
       <div className="flex flex-wrap gap-2 pt-1">
         <Button
           size="sm"
-          disabled={
-            pending ||
-            comment.trim().length < 2 ||
-            !assigneeId ||
-            !deadline ||
-            !canSubmit
-          }
+          disabled={pending || comment.trim().length < 2 || !assigneeId || !canSubmit}
           onClick={() => void handleSubmit()}
         >
           {pending ? "Saving…" : activeAssignment ? "Forward" : "Assign"}
         </Button>
-        <Link
-          href="/dashboard/letters"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          Back to list
+        <Link href={listHref} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          {listLabel}
         </Link>
       </div>
     </div>

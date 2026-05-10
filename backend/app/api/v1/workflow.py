@@ -95,6 +95,8 @@ def approve_letter(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="letter_approved",
+            module="workflow",
+            description="Approved letter and assigned department",
             resource_type="letter",
             resource_id=letter_id,
             detail={
@@ -102,6 +104,15 @@ def approve_letter(
                 "priority": payload.priority.value if payload.priority is not None else None,
             },
         )
+        if letter.department_id is not None:
+            ActivityService(db).notify_team_leaders_for_department(
+                department_id=letter.department_id,
+                letter_id=letter.id,
+                serial_no=letter.serial_no,
+                subject=letter.subject,
+                title_prefix="Department assigned",
+                event_code="letter.department_assigned",
+            )
         db.commit()
         return LetterOut.model_validate(letter)
     except ValueError as exc:
@@ -131,6 +142,8 @@ def reject_letter(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="letter_rejected",
+            module="workflow",
+            description="Rejected letter",
             resource_type="letter",
             resource_id=letter_id,
             detail=None,
@@ -164,6 +177,8 @@ def return_letter(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="letter_returned_for_correction",
+            module="workflow",
+            description="Returned letter for correction",
             resource_type="letter",
             resource_id=letter_id,
             detail=None,
@@ -202,9 +217,19 @@ def route_letter(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="letter_routed",
+            module="workflow",
+            description="Forwarded letter to target department",
             resource_type="letter",
             resource_id=letter_id,
             detail={"target_department_id": payload.target_department_id},
+        )
+        ActivityService(db).notify_team_leaders_for_department(
+            department_id=payload.target_department_id,
+            letter_id=letter.id,
+            serial_no=letter.serial_no,
+            subject=letter.subject,
+            title_prefix="Letter forwarded",
+            event_code="letter.routed",
         )
         db.commit()
         return LetterOut.model_validate(letter)

@@ -29,9 +29,9 @@ export type NavItem = {
   anyOf?: NavScreen[];
 };
 
+/** Sidebar order = workflow: operational screens, then reporting, alerts, admin. */
 export const dashboardNav: NavItem[] = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard, screen: "dashboard:view" },
-  { title: "Reports", href: "/dashboard/reports", icon: BarChart3, screen: "reports:view" },
   {
     title: "Letters",
     href: "/dashboard/letters",
@@ -62,6 +62,7 @@ export const dashboardNav: NavItem[] = [
     icon: ListChecks,
     screen: "closure:view",
   },
+  { title: "Reports", href: "/dashboard/reports", icon: BarChart3, screen: "reports:view" },
   {
     title: "Notifications",
     href: "/dashboard/notifications",

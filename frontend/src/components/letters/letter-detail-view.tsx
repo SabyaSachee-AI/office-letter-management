@@ -7,12 +7,9 @@ import { TeamLeaderAssignmentPanel } from "@/components/assignments/team-leader-
 import { ClosurePanel } from "@/components/closure/closure-panel";
 import { ConsultantAssignmentWork } from "@/components/consultant/consultant-assignment-work";
 import { ErrorBanner } from "@/components/data/error-banner";
-import { AssignmentRecipientSummary } from "@/components/letters/assignment-recipient-summary";
 import { LetterAttachmentPreviewPane } from "@/components/letters/letter-attachment-preview-pane";
-import { LetterCompactSummary } from "@/components/letters/letter-compact-summary";
-import { LetterStatusTimeline } from "@/components/letters/letter-status-timeline";
-import { WorkflowCommentBlocks } from "@/components/letters/letter-workflow-comment-blocks";
-import { PageHeader } from "@/components/layout/page-header";
+import { LetterReviewCompactHeader } from "@/components/letters/letter-review-compact-header";
+import { WorkflowForwardingHistory } from "@/components/letters/workflow-forwarding-history";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/auth-context";
@@ -42,15 +39,43 @@ import {
 } from "@/lib/letter-workflow";
 import { getVisibleWorkflowStatus } from "@/lib/workflow-display";
 import { cn } from "@/lib/utils";
-import { toastError, toastSuccess } from "@/lib/toast";
+import { toastError, toastSuccess, toastWarning } from "@/lib/toast";
 import type { AssignmentOut, ClosureHistoryResponse, LetterOut } from "@/types/letter";
 import type { DepartmentOut } from "@/types/user";
 
+export type LetterModuleContext = "letters" | "approval" | "assignment" | "consultant" | "closure";
+
+function backLinkForErrorState(ctx: LetterModuleContext): { href: string; label: string } {
+  switch (ctx) {
+    case "approval":
+      return { href: "/dashboard/approval", label: "Back to Approval Queue" };
+    case "assignment":
+      return { href: "/dashboard/assignment", label: "Back to Assignment" };
+    case "consultant":
+      return { href: "/dashboard/consultant", label: "Back to Consultant Workspace" };
+    case "closure":
+      return { href: "/dashboard/closure", label: "Back to Closure" };
+    default:
+      return { href: "/dashboard/letters", label: "Back to letters" };
+  }
+}
+
 type LetterDetailViewProps = {
   letterId: number;
+  /** Which module opened this letter — drives back navigation and which action panels apply. */
+  moduleContext?: LetterModuleContext;
 };
 
-export function LetterDetailView({ letterId }: LetterDetailViewProps) {
+function mergeAssignmentsAfterReassign(prev: AssignmentOut[], next: AssignmentOut): AssignmentOut[] {
+  return [
+    ...prev.map((a) =>
+      a.is_active ? { ...a, is_active: false, work_status: "transferred" as AssignmentOut["work_status"] } : a
+    ),
+    next,
+  ];
+}
+
+export function LetterDetailView({ letterId, moduleContext = "letters" }: LetterDetailViewProps) {
   const { user: me } = useAuth();
   const [letter, setLetter] = useState<LetterOut | null>(null);
   const [history, setHistory] = useState<ClosureHistoryResponse | null>(null);
@@ -97,19 +122,74 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
     }
   }, [letterId]);
 
+  const refreshAfterAssignmentSave = useCallback(
+    async (newAssignment?: AssignmentOut) => {
+      const snapshot =
+        letter && history
+          ? { letter: { ...letter }, history: { ...history }, assignments: [...assignments] }
+          : null;
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [l, h, t] = await Promise.all([
+          getLetter(letterId),
+          getLetterActionHistory(letterId),
+          getAssignmentTracking(letterId).catch(() => null),
+        ]);
+        setLetter(l);
+        setMemoNo(l.memo_no ?? "");
+        setSubject(l.subject);
+        setReceivedFrom(l.received_from);
+        setPriority(l.priority);
+        setHistory(h);
+        setAssignments(t?.assignments ?? []);
+      } catch (e) {
+        const msg = getApiErrorMessage(e);
+        if (moduleContext === "assignment" && snapshot) {
+          const merged = newAssignment
+            ? mergeAssignmentsAfterReassign(snapshot.assignments, newAssignment)
+            : snapshot.assignments;
+          setLetter(snapshot.letter);
+          setMemoNo(snapshot.letter.memo_no ?? "");
+          setSubject(snapshot.letter.subject);
+          setReceivedFrom(snapshot.letter.received_from);
+          setPriority(snapshot.letter.priority);
+          setHistory(snapshot.history);
+          setAssignments(merged);
+          setLoadError(null);
+          toastWarning(
+            "Assignment saved, but the detail view could not fully refresh. Return to the Assignment list and reopen this letter if something looks outdated."
+          );
+        } else {
+          setLoadError(msg);
+          setLetter(null);
+          setHistory(null);
+          setAssignments([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [letterId, letter, history, assignments, moduleContext]
+  );
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (window.location.hash === "#closure") {
-      document.getElementById("closure")?.scrollIntoView({ behavior: "smooth" });
+    if (moduleContext === "closure" || window.location.hash === "#closure") {
+      requestAnimationFrame(() => {
+        document.getElementById("closure")?.scrollIntoView({ behavior: "smooth" });
+      });
     }
-  }, [letter]);
+  }, [moduleContext, letter]);
 
+  const letterIdForDeptFetch = letter?.id ?? null;
+  const historyLetterIdForDeptFetch = history?.letter_id ?? null;
   useEffect(() => {
-    if (!canApprovalActions(me)) return;
+    if (letterIdForDeptFetch == null || historyLetterIdForDeptFetch == null) return;
     let cancelled = false;
     (async () => {
       try {
@@ -122,16 +202,33 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [me]);
+  }, [letterIdForDeptFetch, historyLetterIdForDeptFetch]);
 
   const consultantSolutionSummary = useMemo(() => {
     if (!history) return null;
     return buildConsultantSolutionSummary(history.actions, assignments);
   }, [history, assignments]);
 
+  const departmentById = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const d of departments) {
+      m[d.id] = `${d.name} (${d.code})`;
+    }
+    const ld = letter?.department;
+    if (ld) {
+      m[ld.id] = `${ld.name} (${ld.code})`;
+    }
+    return m;
+  }, [departments, letter?.department]);
+
   const lastTlAction = useMemo(
     () => (history ? lastTeamLeaderAssignmentAction(history.actions) : null),
     [history]
+  );
+
+  const activeAssignments = useMemo(
+    () => assignments.filter((a) => a.is_active),
+    [assignments]
   );
 
   const solutionReviewed = useMemo(
@@ -154,44 +251,65 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
   }
 
   if (loadError || !letter || !history) {
+    const eb = backLinkForErrorState(moduleContext);
     return (
       <div className="space-y-4">
         <ErrorBanner message={loadError ?? "This letter could not be loaded."} />
-        <Link
-          href="/dashboard/letters"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          Back to letters
+        <Link href={eb.href} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          {eb.label}
         </Link>
       </div>
     );
   }
 
-  const activeAssignment = assignments.find((a) => a.is_active) ?? null;
-  const visibleWorkflow = getVisibleWorkflowStatus(
-    letter,
-    activeAssignment ?? null,
-    { preferPendingFinalClosure: true }
-  );
+  const singleActiveAssignment = activeAssignments.length === 1 ? activeAssignments[0] : null;
+  const tlRoutingAssignment =
+    activeAssignments.length > 0
+      ? [...activeAssignments].sort(
+          (a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime()
+        )[0]!
+      : null;
+  const isConsultantActor =
+    !!me && (hasRole(me, "Consultant") || userHasPermission(me, "consultant:view"));
+  const lettersSmartConsultantBack =
+    !!me && activeAssignments.some((a) => a.consultant_id === me.id) && isConsultantActor;
+  const moduleBack = moduleContext !== "letters" ? backLinkForErrorState(moduleContext) : null;
+  const backToListHref =
+    moduleBack?.href ?? (lettersSmartConsultantBack ? "/dashboard/consultant" : "/dashboard/letters");
+  const backToListLabel =
+    moduleBack?.label ??
+    (lettersSmartConsultantBack ? "Back to Consultant Workspace" : "Back to Letters");
+  const visibleWorkflow = getVisibleWorkflowStatus(letter, singleActiveAssignment ?? tlRoutingAssignment, {
+    preferPendingFinalClosure: true,
+  });
   const admin = isAdmin(me);
   const isAssignedWorkflow = Boolean(letter.department);
   const assignmentMeta = [...history.actions]
     .reverse()
     .find((a) => a.action === "approve" || a.action === "route");
   const myConsultantAssignment =
-    me &&
-    activeAssignment &&
-    activeAssignment.consultant_id === me.id &&
-    hasRole(me, "Consultant")
-      ? activeAssignment
+    me && isConsultantActor
+      ? (activeAssignments.find((a) => a.consultant_id === me.id) ?? null)
       : null;
+
+  const consultantEvidenceAssignment =
+    activeAssignments.find(
+      (a) =>
+        a.work_status === "resolved" ||
+        Boolean((a.resolution_note ?? "").trim()) ||
+        Boolean(a.has_solution_file)
+    ) ?? tlRoutingAssignment;
 
   const workflowLocked = letter.status === "closed" || letter.status === "rejected";
 
   const showAssign =
-    canAssignConsultant(me) && !workflowLocked && Boolean(letter.department);
+    (moduleContext === "letters" || moduleContext === "assignment") &&
+    canAssignConsultant(me) &&
+    !workflowLocked &&
+    Boolean(letter.department);
 
   const showApprovalActions =
+    (moduleContext === "letters" || moduleContext === "approval") &&
     canApprovalActions(me) &&
     !workflowLocked &&
     (letter.status === "received" || letter.status === "returned_for_correction");
@@ -207,13 +325,19 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
     closureReadiness &&
     !workflowLocked &&
     letter.status !== "rejected" &&
-    (userHasPermission(me, "closure:view") || Boolean(myConsultantAssignment));
+    (userHasPermission(me, "closure:view") ||
+      (moduleContext !== "consultant" && Boolean(myConsultantAssignment)));
 
   const consultantDeptId =
     workflowDepartmentId(me) ?? letter.department?.id ?? undefined;
 
+  const consultantPanelContexts: LetterModuleContext[] = ["letters", "consultant", "assignment"];
   const showConsultantWork = Boolean(
-    myConsultantAssignment && me && hasRole(me, "Consultant") && !workflowLocked
+    consultantPanelContexts.includes(moduleContext) &&
+      myConsultantAssignment &&
+      me &&
+      isConsultantActor &&
+      !workflowLocked
   );
 
   async function submitAdminEdit() {
@@ -286,7 +410,7 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
   }
 
   const adminSummarySection =
-    admin ? (
+    moduleContext === "letters" && admin ? (
       <div className="rounded-md border border-slate-200 bg-white/80 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
           <span className="font-medium text-slate-800">System Admin</span>
@@ -375,15 +499,15 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
     ) : undefined;
 
   return (
-    <div className="space-y-4 pb-6">
-      <PageHeader title={letter.serial_no} description={letter.subject} actions={
-          <Link
-            href="/dashboard/letters"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-          >
-            Back to list
-          </Link>
-        }
+    <div className="space-y-4 pb-8">
+      <LetterReviewCompactHeader
+        letter={letter}
+        visibleLabel={visibleWorkflow.visibleLabel}
+        currentHolderLabel={visibleWorkflow.currentHolderLabel}
+        internalStatus={visibleWorkflow.internalStatus}
+        showInternalStatus={admin}
+        backHref={backToListHref}
+        backLabel={backToListLabel}
       />
 
       {loadError ? <ErrorBanner message={loadError} /> : null}
@@ -403,82 +527,45 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:items-start lg:gap-6">
-        <div className="order-1 flex min-h-0 min-w-0 flex-col gap-6 lg:col-span-8">
-          <LetterAttachmentPreviewPane letterId={letter.id} pdfPath={letter.pdf_path} />
-          <div className="space-y-4 border-t border-slate-200/80 pt-2">
-            <LetterStatusTimeline letter={letter} latestAssignment={activeAssignment} />
-            <WorkflowCommentBlocks actions={history.actions} />
-          </div>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6">
+        <div className="order-1 min-h-0 min-w-0 flex-1 lg:order-1 lg:max-w-[70%] lg:flex-[7]">
+          <LetterAttachmentPreviewPane
+            letterId={letter.id}
+            pdfPath={letter.pdf_path}
+            variant="documentFirst"
+            hideFileNameCaption
+          />
         </div>
 
         <aside
           className={cn(
-            "order-2 flex min-w-0 flex-col gap-4 lg:col-span-4 lg:self-start",
-            /* Full column height with document scroll only — no nested sidebar scrollbar */
-            "overflow-visible pb-10 lg:pb-16"
+            "order-2 flex min-w-0 flex-col gap-3 lg:sticky lg:top-4 lg:order-2 lg:max-h-[calc(100dvh-2rem)] lg:max-w-[30%] lg:flex-[3] lg:self-start lg:overflow-y-auto lg:pb-0"
           )}
         >
-          <LetterCompactSummary
-            letter={letter}
-            adminSection={adminSummarySection}
-            workflowLabel={visibleWorkflow.visibleLabel}
-            currentHolderLabel={visibleWorkflow.currentHolderLabel}
-            internalStatus={visibleWorkflow.internalStatus}
-          />
+          {adminSummarySection ? (
+            <div className="rounded-lg border border-slate-200 bg-white/90 p-2">{adminSummarySection}</div>
+          ) : null}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="border-b border-slate-100 pb-3">
               <h2 className="text-xs font-semibold tracking-wide text-[#123f63] uppercase">
-                Workflow &amp; actions
+                Next action for you
               </h2>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
-                Steps for your role. Full audit trail is in the timeline under the attachment.
+              <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
+                Role-based steps only. Status and responsible user are in the header; the full audit
+                trail is below the document.
               </p>
             </div>
             <div className="space-y-4 pt-4 text-sm">
-              <div className="rounded-xl border border-slate-200/90 bg-slate-50/90 p-3 text-[11px] leading-relaxed text-slate-700">
-                <p className="text-xs font-semibold text-[#123f63]">Approval Head-PEC — Department</p>
-                {!letter.department ? (
-                  <p className="mt-1.5 text-amber-800">Pending department assignment</p>
-                ) : (
-                  <div className="mt-1.5 space-y-1">
-                    <p>
-                      <span className="font-medium text-slate-800">Department: </span>
-                      {letter.department.name} ({letter.department.code})
-                    </p>
-                    <p>
-                      <span className="font-medium text-slate-800">By: </span>
-                      {assignmentMeta?.acted_by_full_name ||
-                        assignmentMeta?.acted_by_email ||
-                        "—"}
-                    </p>
-                    <p>
-                      <span className="font-medium text-slate-800">Time: </span>
-                      {assignmentMeta
-                        ? new Date(assignmentMeta.created_at).toLocaleString()
-                        : "—"}
-                    </p>
-                    <p className="whitespace-pre-wrap border-t border-slate-200/80 pt-1.5">
-                      <span className="font-medium text-slate-800">Note: </span>
-                      {assignmentMeta?.comment || "—"}
+              {showApprovalActions ? (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-[#123f63]">Your task</p>
+                    <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
+                      Review the attachment, record a workflow note, select the receiving department
+                      and priority, then approve or reject.
                     </p>
                   </div>
-                )}
-              </div>
-
-              {activeAssignment &&
-              !(showConsultantWork && myConsultantAssignment) ? (
-                <AssignmentRecipientSummary
-                  assignment={activeAssignment}
-                  letterDepartment={letter.department}
-                  teamLeaderComment={lastTlAction?.comment ?? null}
-                />
-              ) : null}
-
-              {showApprovalActions ? (
-                <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/60">
-                  <p className="text-xs font-semibold text-[#123f63]">Your decision</p>
                   {!canApproveLetter && !canRejectLetter ? (
                     <p className="text-muted-foreground text-xs leading-relaxed">
                       You can view this letter&apos;s approval context but do not have permission to
@@ -569,17 +656,36 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
               ) : null}
 
               {showAssign && letter.department ? (
-                <TeamLeaderAssignmentPanel
-                  letterId={letterId}
-                  departmentId={letter.department.id}
-                  activeAssignment={activeAssignment}
-                  lastTeamLeaderAction={lastTlAction}
-                  onSuccess={() => void refresh()}
-                />
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[#123f63]">Your task</p>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      Assign or forward to a Team Leader or Consultant (any department), with an optional
+                      deadline and workflow note.
+                    </p>
+                  </div>
+                  <TeamLeaderAssignmentPanel
+                    letterId={letterId}
+                    departmentId={letter.department.id}
+                    activeAssignment={tlRoutingAssignment}
+                    lastTeamLeaderAction={lastTlAction}
+                    listHref={backToListHref}
+                    listLabel={backToListLabel}
+                    onSuccess={(created) => void refreshAfterAssignmentSave(created)}
+                  />
+                </div>
               ) : null}
 
               {showConsultantWork && myConsultantAssignment ? (
-                <ConsultantAssignmentWork
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[#123f63]">Your task</p>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      Submit your solution (note and optional file), mark resolved, or transfer the
+                      assignment with context.
+                    </p>
+                  </div>
+                  <ConsultantAssignmentWork
                   row={{
                     assignment: myConsultantAssignment,
                     letter_id: letter.id,
@@ -591,13 +697,22 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                     letter_department: letter.department ?? undefined,
                   }}
                   departmentId={consultantDeptId ?? 0}
+                  letterStatus={letter.status}
                   onUpdated={() => void refresh()}
                   teamLeaderComment={lastTlAction?.comment ?? null}
                 />
+                </div>
               ) : null}
 
               {showClosurePanel ? (
-                <ClosurePanel
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[#123f63]">Your task</p>
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      Review consultant evidence, add closure remarks, and officially close when permitted.
+                    </p>
+                  </div>
+                  <ClosurePanel
                   letterId={letterId}
                   onChanged={() => void refresh()}
                   consultantSolutionSummary={consultantSolutionSummary}
@@ -605,11 +720,11 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                   canReviewSolution={userHasPermission(me, "closure:review")}
                   canSaveFinalRemark={userHasPermission(me, "closure:review")}
                   canOfficialClose={userHasPermission(me, "closure:close")}
-                  consultantWorkEvidenceReady={Boolean(
-                    activeAssignment &&
-                      (activeAssignment.work_status === "resolved" ||
-                        Boolean((activeAssignment.resolution_note ?? "").trim()) ||
-                        Boolean(activeAssignment.has_solution_file))
+                  consultantWorkEvidenceReady={activeAssignments.some(
+                    (a) =>
+                      a.work_status === "resolved" ||
+                      Boolean((a.resolution_note ?? "").trim()) ||
+                      Boolean(a.has_solution_file)
                   )}
                   approvalNote={
                     assignmentMeta
@@ -635,28 +750,45 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
                             lastTlAction.acted_by_email ||
                             `User #${lastTlAction.acted_by}`,
                           assignedTo:
-                            activeAssignment?.consultant_user?.full_name ||
-                            `User #${activeAssignment?.consultant_id ?? "-"}`,
+                            activeAssignments.length > 1
+                              ? `${activeAssignments.length} active assignees`
+                              : tlRoutingAssignment?.consultant_user?.full_name ||
+                                `User #${tlRoutingAssignment?.consultant_id ?? "-"}`,
                           timestamp: lastTlAction.created_at,
                         }
                       : null
                   }
                   consultantNote={
-                    activeAssignment
+                    consultantEvidenceAssignment
                       ? {
-                          note: activeAssignment.resolution_note,
-                          hasFile: Boolean(activeAssignment.has_solution_file),
+                          note: consultantEvidenceAssignment.resolution_note,
+                          hasFile: Boolean(consultantEvidenceAssignment.has_solution_file),
                           resolvedBy:
-                            activeAssignment.consultant_user?.full_name ||
-                            `User #${activeAssignment.consultant_id}`,
+                            consultantEvidenceAssignment.consultant_user?.full_name ||
+                            `User #${consultantEvidenceAssignment.consultant_id}`,
                           resolvedAt:
-                            activeAssignment.latest_solution_file_uploaded_at ??
-                            activeAssignment.updated_at,
-                          workStatus: activeAssignment.work_status,
+                            consultantEvidenceAssignment.latest_solution_file_uploaded_at ??
+                            consultantEvidenceAssignment.updated_at,
+                          workStatus: consultantEvidenceAssignment.work_status,
                         }
                       : null
                   }
                 />
+                </div>
+              ) : null}
+
+              {activeAssignments.length > 1 ? (
+                <div className="rounded-lg border border-violet-200/80 bg-violet-50/60 p-3 text-sm text-slate-800">
+                  <p className="text-xs font-semibold text-[#123f63] uppercase">Multiple active assignments</p>
+                  <p className="mt-1 text-[13px]">
+                    {activeAssignments.length} users currently have an{" "}
+                    <span className="font-medium">active assignment</span> on this letter (
+                    {visibleWorkflow.visibleLabel}).
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+                    Open workflow history below for each step and assignee.
+                  </p>
+                </div>
               ) : null}
 
               {!showApprovalActions &&
@@ -664,17 +796,30 @@ export function LetterDetailView({ letterId }: LetterDetailViewProps) {
               !showConsultantWork &&
               !showClosurePanel &&
               !workflowLocked ? (
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  {isReceivingOfficer(me)
-                    ? "Receiving Officer view is read-only here. Inward registration is from Receive letter; routing is handled by Approval Head-PEC and Team Leaders."
-                    : "No actions are available for your role at this stage. Use the attachment and timeline on the left."}
-                </p>
+                <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-xs leading-relaxed text-slate-700">
+                  <p className="font-semibold text-[#123f63]">Progress</p>
+                  <p className="text-muted-foreground mt-1">
+                    {isReceivingOfficer(me)
+                      ? "Receiving Officer: this view is read-only. Inward registration is from Receive letter; routing is handled by Approval Head-PEC and Team Leaders."
+                      : "No workflow actions are available for your role at this stage. Review the document above; the section below lists every recorded step."}
+                  </p>
+                </div>
               ) : null}
             </div>
           </div>
         </aside>
       </div>
 
+      <section
+        className="mt-8 border-t border-slate-200/90 pt-6 lg:mt-10 lg:pt-8"
+        aria-labelledby="workflow-history-heading"
+      >
+        <WorkflowForwardingHistory
+          actions={history.actions}
+          departmentById={departmentById}
+          assignments={assignments}
+        />
+      </section>
     </div>
   );
 }

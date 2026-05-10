@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -124,7 +124,7 @@ class LetterAssignment(Base):
     letter_id: Mapped[int] = mapped_column(ForeignKey("letters.id"), nullable=False, index=True)
     consultant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     assigned_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False, index=True)
     work_status: Mapped[AssignmentWorkStatus] = mapped_column(
         Enum(AssignmentWorkStatus, name="assignment_work_status", values_callable=member_values),
@@ -142,6 +142,16 @@ class LetterAssignment(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_letter_assignments_one_active_per_letter",
+            "letter_id",
+            unique=True,
+            postgresql_where=text("is_active IS TRUE"),
+            sqlite_where=text("is_active = 1"),
+        ),
     )
 
     letter = relationship("Letter")

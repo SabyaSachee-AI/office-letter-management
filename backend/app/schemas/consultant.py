@@ -14,7 +14,7 @@ class ConsultantAssignedLetterOut(BaseModel):
     memo_no: str | None = None
     subject: str
     received_from: str
-    deadline_at: datetime
+    deadline_at: datetime | None = None
     letter_department: DepartmentOut | None = None
 
 
@@ -36,5 +36,6 @@ class ConsultantResolutionIn(BaseModel):
 
 
 class ConsultantTransferIn(BaseModel):
-    target_consultant_id: int
-    comment: str = Field(min_length=2, max_length=500)
+    target_user_id: int
+    comment: str = Field(min_length=2, max_length=2000)
+    deadline_at: datetime | None = None

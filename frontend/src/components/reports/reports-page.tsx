@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { LetterFilterBar } from "@/components/letters/letter-filter-bar";
 import { LettersTable } from "@/components/letters/letters-table";
+import { ReportsPrintSummary } from "@/components/reports/reports-print-summary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/auth-context";
 import { userHasPermission } from "@/lib/auth/permissions";
@@ -19,11 +19,7 @@ import {
   LETTER_STATUS_FILTER_OPTIONS,
   LETTER_STATUS_LABELS,
 } from "@/lib/workflow-display";
-import {
-  downloadLettersPdf,
-  downloadLettersXlsx,
-  fetchReportAnalytics,
-} from "@/lib/api/reports";
+import { downloadLettersXlsx, fetchReportAnalytics } from "@/lib/api/reports";
 import { listLetters } from "@/lib/api/letters";
 import { fetchDepartments } from "@/lib/api/users";
 import type { AnalyticsOut } from "@/types/reports";
@@ -34,6 +30,8 @@ const STATUS_OPTS = [
   { value: "pending_assignment", label: "Pending Assignment" },
   ...LETTER_STATUS_FILTER_OPTIONS,
 ];
+
+const REPORTS_PRINT_LETTER_LIMIT = 100;
 
 function defaultDateRange() {
   const to = new Date();
@@ -56,6 +54,29 @@ function humanizeKey(
     return ASSIGNMENT_WORK_STATUS_LABELS[key as keyof typeof ASSIGNMENT_WORK_STATUS_LABELS];
   }
   return key.replace(/_/g, " ");
+}
+
+function formatReportsFilterCaption(
+  dateFrom: string,
+  dateTo: string,
+  status: string,
+  deptFilter: string,
+  departments: DepartmentOut[],
+  searchQ: string,
+  fromOffice: string
+): string {
+  const dates =
+    dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : dateFrom ? `from ${dateFrom}` : dateTo ? `until ${dateTo}` : "no date range";
+  const statusLabel =
+    status === ""
+      ? "Any status"
+      : STATUS_OPTS.find((o) => o.value === status)?.label ?? status;
+  const deptLabel = deptFilter
+    ? departments.find((d) => String(d.id) === deptFilter)?.name ?? `Department id ${deptFilter}`
+    : "All departments";
+  const qPart = searchQ.trim() ? `Search: ${searchQ.trim()}` : "Search: none";
+  const officePart = fromOffice.trim() ? `From office: ${fromOffice.trim()}` : "From office: none";
+  return `Dates: ${dates}  |  Status: ${statusLabel}  |  ${deptLabel}  |  ${qPart}  |  ${officePart}`;
 }
 
 function DistributionBars({
@@ -105,6 +126,7 @@ export function ReportsPage() {
   const admin = isAdmin(user);
   const central = isCentralLetterRole(user);
   const canExportReports = userHasPermission(user, "reports:export");
+  const canViewReports = userHasPermission(user, "reports:view");
   const defaults = useMemo(() => defaultDateRange(), []);
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
@@ -116,8 +138,14 @@ export function ReportsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsOut | null>(null);
   const [sampleLetters, setSampleLetters] = useState<LetterOut[]>([]);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [printPreparing, setPrintPreparing] = useState(false);
+  const [printSnapshot, setPrintSnapshot] = useState<{
+    analytics: AnalyticsOut;
+    letters: LetterOut[];
+    lettersTotal: number;
+  } | null>(null);
 
   useEffect(() => {
     setDateFrom(searchParams.get("date_from") ?? defaults.from);
@@ -198,8 +226,70 @@ export function ReportsPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setPrintSnapshot(null);
+  }, [queryParams]);
+
+  const filterCaption = useMemo(
+    () =>
+      formatReportsFilterCaption(
+        dateFrom,
+        dateTo,
+        status,
+        deptFilter,
+        departments,
+        searchQ,
+        fromOffice
+      ),
+    [dateFrom, dateTo, status, deptFilter, departments, searchQ, fromOffice]
+  );
+
+  const handlePrintSummary = useCallback(async () => {
+    if (!analytics) return;
+    setPrintPreparing(true);
+    setError(null);
+    try {
+      const [freshAnalytics, lettersRes] = await Promise.all([
+        fetchReportAnalytics(queryParams),
+        listLetters({
+          limit: REPORTS_PRINT_LETTER_LIMIT,
+          offset: 0,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          department_id: departmentId,
+          q: searchQ || undefined,
+          from_office: fromOffice || undefined,
+          status: status === "pending_assignment" ? "received" : status || undefined,
+          unassigned_only: status === "pending_assignment",
+        }),
+      ]);
+      flushSync(() => {
+        setPrintSnapshot({
+          analytics: freshAnalytics,
+          letters: lettersRes.items,
+          lettersTotal: lettersRes.total,
+        });
+      });
+      window.print();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to prepare print summary");
+    } finally {
+      setPrintPreparing(false);
+    }
+  }, [
+    analytics,
+    queryParams,
+    dateFrom,
+    dateTo,
+    departmentId,
+    searchQ,
+    fromOffice,
+    status,
+  ]);
+
   return (
-    <div className="space-y-6">
+    <div className="olm-reports-page space-y-6">
+      <div className="print:hidden">
       <PageHeader
         title="Reports & exports"
         description="Analytics for letters and assignments. Exports use the same filters. Non-administrators are scoped to their department."
@@ -249,36 +339,6 @@ export function ReportsPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200/80 bg-slate-50/90 p-4 shadow-sm">
-        <div className="grid gap-1.5">
-          <Label htmlFor="rep-from" className="text-muted-foreground text-xs">
-            From
-          </Label>
-          <Input
-            id="rep-from"
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-[11rem]"
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="rep-to" className="text-muted-foreground text-xs">
-            To
-          </Label>
-          <Input
-            id="rep-to"
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-[11rem]"
-          />
-        </div>
-        <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
-          Refresh
-        </Button>
-      </div>
-
       {error ? (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -290,33 +350,27 @@ export function ReportsPage() {
           type="button"
           variant="outline"
           size="sm"
-          disabled={!!exporting || !canExportReports}
-          onClick={async () => {
-            setExporting("pdf");
-            try {
-              await downloadLettersPdf(queryParams);
-            } finally {
-              setExporting(null);
-            }
-          }}
+          disabled={loading || !analytics || printPreparing || !canViewReports}
+          title="Opens the print dialog with an A4 landscape summary for the current filters (same data as on screen)."
+          onClick={() => void handlePrintSummary()}
         >
-          {exporting === "pdf" ? "Preparing…" : "Download PDF"}
+          {printPreparing ? "Preparing print…" : "Print summary"}
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={!!exporting || !canExportReports}
+          disabled={exporting || !canExportReports}
           onClick={async () => {
-            setExporting("xlsx");
+            setExporting(true);
             try {
               await downloadLettersXlsx(queryParams);
             } finally {
-              setExporting(null);
+              setExporting(false);
             }
           }}
         >
-          {exporting === "xlsx" ? "Preparing…" : "Download Excel"}
+          {exporting ? "Preparing…" : "Download Excel"}
         </Button>
       </div>
       {!canExportReports ? (
@@ -406,7 +460,7 @@ export function ReportsPage() {
               </p>
             </CardHeader>
             <CardContent>
-              <LettersTable letters={sampleLetters} loading={loading} />
+              <LettersTable letters={sampleLetters} loading={loading} linkLetterDetail={false} />
             </CardContent>
           </Card>
 
@@ -455,6 +509,18 @@ export function ReportsPage() {
             </Card>
           </div>
         </>
+      ) : null}
+      </div>
+
+      {printSnapshot ? (
+        <ReportsPrintSummary
+          title="Reports & exports summary (according to filter)"
+          filterCaption={filterCaption}
+          generatedAt={new Date().toLocaleString()}
+          analytics={printSnapshot.analytics}
+          letters={printSnapshot.letters}
+          lettersTotal={printSnapshot.lettersTotal}
+        />
       ) : null}
     </div>
   );

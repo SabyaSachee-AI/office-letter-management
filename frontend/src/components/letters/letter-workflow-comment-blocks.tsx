@@ -32,7 +32,7 @@ export function actionStatusLabel(action: string): string {
     consultant_status_update: "Consultant status update",
     resolution_note: "Solution / resolution note",
     solution_file_upload: "Solution file uploaded",
-    transfer_assignment: "Transferred to another consultant",
+    transfer_assignment: "Transferred / forwarded (Consultant or Team Leader)",
     review_solution: "Solution reviewed (closure)",
     final_comment: "Final / closure comment",
     close_issue: "Letter closed",

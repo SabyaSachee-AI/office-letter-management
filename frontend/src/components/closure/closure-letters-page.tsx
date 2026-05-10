@@ -158,7 +158,7 @@ export function ClosureLettersPage() {
       id: "serial_no",
       header: "Serial No",
       cell: (l) => (
-        <Link href={`/dashboard/letters/${l.id}#closure`} className="text-primary font-medium hover:underline">
+        <Link href={`/dashboard/closure/${l.id}`} className="text-primary font-medium hover:underline">
           {l.serial_no}
         </Link>
       ),
@@ -221,7 +221,7 @@ export function ClosureLettersPage() {
       className: "w-28",
       cell: (l) => (
         <Link
-          href={`/dashboard/letters/${l.id}#closure`}
+          href={`/dashboard/closure/${l.id}`}
           className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
         >
           View / Review

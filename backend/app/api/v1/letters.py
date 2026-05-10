@@ -17,7 +17,13 @@ from app.models.letter import (
 )
 from app.models.user import User as UserModel
 from app.models.user import User
-from app.rbac.guards import require_any_permission, require_letter_list_actor, require_roles, require_screen
+from app.rbac.guards import (
+    require_any_permission,
+    require_letter_detail_read_actor,
+    require_letter_list_actor,
+    require_roles,
+    require_screen,
+)
 from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
 from app.rbac.screens import ScreenKey
@@ -36,16 +42,6 @@ from app.services.closure_service import ClosureService
 from app.services.letter_service import LetterService
 
 router = APIRouter(prefix="/letters", tags=["letters"])
-
-ReadLetterRoles = Depends(
-    require_roles(
-        Roles.ADMIN,
-        Roles.RECEIVING_OFFICER,
-        Roles.APPROVAL_HEAD,
-        Roles.TEAM_LEADER,
-        Roles.CONSULTANT,
-    )
-)
 
 
 def _user_brief(u: UserModel | None) -> LetterLatestAssignmentUserOut | None:
@@ -154,10 +150,17 @@ def create_letter(
         )
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
-            action="letter_created",
+            action="letter_received",
+            module="letters",
+            description="Received a new letter",
             resource_type="letter",
             resource_id=letter.id,
             detail={"serial_no": letter.serial_no, "subject": letter.subject},
+        )
+        ActivityService(db).notify_approval_heads_for_received_letter(
+            letter_id=letter.id,
+            serial_no=letter.serial_no,
+            subject=letter.subject,
         )
         db.commit()
         return LetterOut.model_validate(letter)
@@ -218,31 +221,14 @@ def list_letters(
     return LetterListResponse(items=letter_out_items, total=total, limit=limit, offset=offset)
 
 
-LetterReadScreen = Depends(
-    require_any_permission(PermissionKey.LETTERS_VIEW, PermissionKey.CONSULTANT_VIEW)
-)
-
-
 @router.get(
     "/{letter_id}/action-history",
     response_model=ClosureHistoryOut,
-    dependencies=[LetterReadScreen, ReadLetterRoles],
 )
 def letter_action_history(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        User,
-        Depends(
-            require_roles(
-                Roles.ADMIN,
-                Roles.APPROVAL_HEAD,
-                Roles.TEAM_LEADER,
-                Roles.RECEIVING_OFFICER,
-                Roles.CONSULTANT,
-            )
-        ),
-    ],
+    current_user: Annotated[User, Depends(require_letter_detail_read_actor())],
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> ClosureHistoryOut:
@@ -266,25 +252,11 @@ def letter_action_history(
     return closure_history_out_from_letter(letter)
 
 
-@router.get(
-    "/{letter_id}/attachment",
-    dependencies=[LetterReadScreen, ReadLetterRoles],
-)
+@router.get("/{letter_id}/attachment")
 def get_letter_attachment(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        User,
-        Depends(
-            require_roles(
-                Roles.ADMIN,
-                Roles.RECEIVING_OFFICER,
-                Roles.APPROVAL_HEAD,
-                Roles.TEAM_LEADER,
-                Roles.CONSULTANT,
-            )
-        ),
-    ],
+    current_user: Annotated[User, Depends(require_letter_detail_read_actor())],
 ) -> FileResponse:
     """Stream the stored letter attachment file (auth + same visibility as letter detail)."""
     service = LetterService(db)
@@ -314,22 +286,11 @@ def get_letter_attachment(
     )
 
 
-@router.get("/{letter_id}", response_model=LetterOut, dependencies=[LetterReadScreen, ReadLetterRoles])
+@router.get("/{letter_id}", response_model=LetterOut)
 def get_letter(
     letter_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        User,
-        Depends(
-            require_roles(
-                Roles.ADMIN,
-                Roles.RECEIVING_OFFICER,
-                Roles.APPROVAL_HEAD,
-                Roles.TEAM_LEADER,
-                Roles.CONSULTANT,
-            )
-        ),
-    ],
+    current_user: Annotated[User, Depends(require_letter_detail_read_actor())],
 ) -> LetterOut:
     service = LetterService(db)
     try:
@@ -366,6 +327,8 @@ def update_letter_admin(
     ActivityService(db).record_audit(
         actor_user_id=current_user.id,
         action="letter_updated",
+        module="letters",
+        description="Updated letter details",
         resource_type="letter",
         resource_id=letter.id,
         detail={"serial_no": letter.serial_no},
@@ -395,6 +358,8 @@ def delete_letter_admin(
     ActivityService(db).record_audit(
         actor_user_id=current_user.id,
         action="letter_deleted",
+        module="letters",
+        description="Deleted letter record",
         resource_type="letter",
         resource_id=letter.id,
         detail={"serial_no": letter.serial_no},

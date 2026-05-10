@@ -6,9 +6,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.role import Role
 from app.models.role_screen_permission import RoleScreenPermission
+from app.models.user import User
 from app.rbac.guards import require_any_permission, require_roles
 from app.rbac.permissions import PERMISSION_MATRIX_COLUMNS, PermissionKey
 from app.rbac.roles import Roles
@@ -21,6 +23,7 @@ from app.schemas.user import (
     ScreenColumnOut,
 )
 from app.services.permission_service import MATRIX_ROLE_EMPTY_MARKER, PermissionService
+from app.services.audit_log_service import AuditLogService
 from app.services.role_admin_service import create_custom_role
 
 router = APIRouter(prefix="/role-permissions", tags=["role-permissions"])
@@ -54,6 +57,7 @@ _matrix_deps = [
 def create_custom_role_endpoint(
     payload: RoleCreateIn,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> RoleOut:
     """Create a non-system role. Optionally clone matrix rows from an existing role."""
     try:
@@ -67,6 +71,17 @@ def create_custom_role_endpoint(
         )
         db.commit()
         db.refresh(role)
+        AuditLogService(db).log_safe(
+            actor_user_id=current_user.id,
+            actor_user_name=current_user.full_name,
+            module="role_permissions",
+            action="create_role",
+            description=f"Created custom role '{role.name}'",
+            entity_type="role",
+            entity_id=role.id,
+            new_value={"name": role.name, "code": role.code, "is_active": role.is_active},
+        )
+        db.commit()
         return RoleOut.model_validate(role)
     except ValueError as exc:
         db.rollback()
@@ -125,6 +140,7 @@ def get_permission_matrix(db: Annotated[Session, Depends(get_db)]) -> RolePermis
 def update_permission_matrix(
     payload: RolePermissionMatrixUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, bool]:
     svc = PermissionService(db)
     try:
@@ -136,6 +152,16 @@ def update_permission_matrix(
                     detail=f"Invalid role id {rid}",
                 )
             svc.set_role_screens(rid, set(screens))
+        db.commit()
+        AuditLogService(db).log_safe(
+            actor_user_id=current_user.id,
+            actor_user_name=current_user.full_name,
+            module="role_permissions",
+            action="update_permissions",
+            description="Updated role permission matrix",
+            entity_type="role_permission_matrix",
+            new_value={"role_count": len(payload.grants)},
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -151,7 +177,19 @@ def update_permission_matrix(
 
 
 @router.post("/reset", dependencies=_matrix_deps)
-def reset_permission_matrix(db: Annotated[Session, Depends(get_db)]) -> dict[str, bool]:
+def reset_permission_matrix(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, bool]:
     PermissionService(db).reset_all_to_defaults()
+    db.commit()
+    AuditLogService(db).log_safe(
+        actor_user_id=current_user.id,
+        actor_user_name=current_user.full_name,
+        module="role_permissions",
+        action="reset_permissions",
+        description="Reset role permission matrix to defaults",
+        entity_type="role_permission_matrix",
+    )
     db.commit()
     return {"ok": True}

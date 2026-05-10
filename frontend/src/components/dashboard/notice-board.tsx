@@ -11,11 +11,13 @@ import { isAdmin } from "@/lib/auth/roles";
 import { createNotice, deleteNotice, getNotices, updateNotice } from "@/lib/api/notices";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import type { NoticeOut } from "@/types/notice";
 import type { UserOut } from "@/types/user";
 
 type NoticeBoardProps = {
   user: UserOut | null;
+  className?: string;
 };
 
 type FormState = {
@@ -41,7 +43,7 @@ function toInputDateTime(iso?: string | null): string {
   return z.toISOString().slice(0, 16);
 }
 
-export function NoticeBoard({ user }: NoticeBoardProps) {
+export function NoticeBoard({ user, className }: NoticeBoardProps) {
   const canManage = isAdmin(user);
   const [items, setItems] = useState<NoticeOut[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,7 +142,7 @@ export function NoticeBoard({ user }: NoticeBoardProps) {
   }
 
   return (
-    <section className="space-y-4">
+    <section className={cn("space-y-4", className)}>
       <div className="rounded-xl border border-[#c5d9ef] bg-[#f7fbff] p-4">
         <h2 className="text-lg font-semibold text-[#123f63]">Notice Board</h2>
         <p className="text-muted-foreground text-sm">

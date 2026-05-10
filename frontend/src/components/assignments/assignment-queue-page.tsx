@@ -15,7 +15,7 @@ import { canAssignConsultant, isAdmin } from "@/lib/auth/roles";
 import { ASSIGNMENT_QUEUE_STATUS_OPTIONS } from "@/lib/workflow-display";
 import { getAssignmentTracking } from "@/lib/api/assignments";
 import { fetchDepartments } from "@/lib/api/users";
-import { useUnderReviewLetters } from "@/hooks/use-under-review-letters";
+import { useAssignmentQueueLetters } from "@/hooks/use-assignment-queue-letters";
 import type { LetterOut } from "@/types/letter";
 import type { DepartmentOut } from "@/types/user";
 
@@ -25,10 +25,13 @@ export function AssignmentQueuePage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const admin = isAdmin(user);
-  const departmentId = isAdmin(user)
-    ? undefined
-    : user?.department?.id ?? undefined;
-
+  /**
+   * Do not default-filter by the viewer's department: cross-team TL forwards keep the
+   * letter's `department_id` on the source department while the assignee is another TL;
+   * a default `department_id` query would hide those rows even though the API already
+   * scopes the queue (assignee + department-routed pool). Optional narrowing uses the
+   * filter bar only (`departmentFilter` inside the hook).
+   */
   const {
     page,
     setPage,
@@ -39,7 +42,7 @@ export function AssignmentQueuePage() {
     error,
     reload,
     filters,
-  } = useUnderReviewLetters(departmentId);
+  } = useAssignmentQueueLetters(undefined);
   const [departments, setDepartments] = useState<DepartmentOut[]>([]);
 
   const [assignLetter, setAssignLetter] = useState<LetterOut | null>(null);
@@ -131,6 +134,7 @@ export function AssignmentQueuePage() {
       <LettersTable
         letters={items}
         loading={loading}
+        getLetterDetailHref={(l) => `/dashboard/assignment/${l.id}`}
         renderRowAction={
           canAssign
             ? (l) => (

@@ -1,14 +1,17 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default async function ApprovalReviewRoute({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const letterId = Number(id);
-  if (!Number.isFinite(letterId)) {
+import { useParams } from "next/navigation";
+
+import { LetterDetailView } from "@/components/letters/letter-detail-view";
+
+export default function ApprovalLetterPage() {
+  const params = useParams();
+  const raw = params?.id;
+  const letterId = typeof raw === "string" ? Number(raw) : NaN;
+
+  if (!Number.isFinite(letterId) || letterId < 1) {
     return <p className="text-sm text-red-600">Invalid letter ID.</p>;
   }
-  redirect(`/dashboard/letters/${letterId}`);
+
+  return <LetterDetailView letterId={letterId} moduleContext="approval" />;
 }

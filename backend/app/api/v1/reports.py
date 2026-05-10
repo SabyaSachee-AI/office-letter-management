@@ -5,16 +5,32 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.department import Department
 from app.models.letter import LetterStatus
 from app.models.user import User
 from app.rbac.guards import require_any_permission, require_roles
 from app.rbac.permissions import PermissionKey
 from app.rbac.roles import Roles
 from app.schemas.report import AnalyticsOut
-from app.services.export_service import build_letters_pdf, build_letters_xlsx, letter_row_from_model
+from app.services.export_service import (
+    build_letters_pdf,
+    build_letters_xlsx,
+    format_letters_filter_caption,
+    letter_row_from_model,
+)
 from app.services.report_service import ReportFilters, ReportsService
+from app.services.audit_log_service import AuditLogService
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+EXPORT_TITLE = "Letters export (according to filter)"
+
+
+def _department_export_label(db: Session, department_id: int | None) -> str | None:
+    if department_id is None:
+        return None
+    row = db.get(Department, department_id)
+    return row.name if row else None
 
 
 def _parse_filters(
@@ -77,6 +93,7 @@ def export_letters_pdf(
     q: str | None = Query(default=None, max_length=200),
     from_office: str | None = Query(default=None, max_length=255),
 ) -> Response:
+    audits = AuditLogService(db)
     filters = _parse_filters(date_from, date_to, department_id, status, q, from_office)
     try:
         letters = ReportsService(db).list_letters_for_export(current_user, filters)
@@ -84,9 +101,20 @@ def export_letters_pdf(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     rows = [letter_row_from_model(L) for L in letters]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    title = f"Letters export (generated {stamp} UTC)"
-    pdf = build_letters_pdf(rows, title=title)
+    dept_label = _department_export_label(db, filters.department_id)
+    filter_caption = format_letters_filter_caption(filters, department_name=dept_label)
+    pdf = build_letters_pdf(rows, title=EXPORT_TITLE, filter_caption=filter_caption)
     filename = f"letters-export-{stamp}.pdf"
+    audits.log_safe(
+        actor_user_id=current_user.id,
+        actor_user_name=current_user.full_name,
+        module="reports",
+        action="export_pdf",
+        description="Exported letters report as PDF",
+        entity_type="report",
+        new_value={"row_count": len(rows), "filters": filters.__dict__},
+    )
+    db.commit()
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -108,6 +136,7 @@ def export_letters_xlsx(
     q: str | None = Query(default=None, max_length=200),
     from_office: str | None = Query(default=None, max_length=255),
 ) -> Response:
+    audits = AuditLogService(db)
     filters = _parse_filters(date_from, date_to, department_id, status, q, from_office)
     try:
         letters = ReportsService(db).list_letters_for_export(current_user, filters)
@@ -115,9 +144,20 @@ def export_letters_xlsx(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     rows = [letter_row_from_model(L) for L in letters]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    title = f"Letters export (generated {stamp} UTC)"
-    xlsx = build_letters_xlsx(rows, title=title)
+    dept_label = _department_export_label(db, filters.department_id)
+    filter_caption = format_letters_filter_caption(filters, department_name=dept_label)
+    xlsx = build_letters_xlsx(rows, title=EXPORT_TITLE, filter_caption=filter_caption)
     filename = f"letters-export-{stamp}.xlsx"
+    audits.log_safe(
+        actor_user_id=current_user.id,
+        actor_user_name=current_user.full_name,
+        module="reports",
+        action="export_xlsx",
+        description="Exported letters report as XLSX",
+        entity_type="report",
+        new_value={"row_count": len(rows), "filters": filters.__dict__},
+    )
+    db.commit()
     return Response(
         content=xlsx,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -92,7 +92,7 @@ export type AssignmentOut = {
   letter_id: number;
   consultant_id: number;
   assigned_by: number;
-  deadline_at: string;
+  deadline_at: string | null;
   is_active: boolean;
   work_status: AssignmentWorkStatus;
   resolution_note: string | null;
@@ -118,7 +118,7 @@ export type ConsultantAssignmentRow = {
   memo_no?: string | null;
   subject: string;
   received_from: string;
-  deadline_at: string;
+  deadline_at: string | null;
   letter_department?: DepartmentOut | null;
 };
 

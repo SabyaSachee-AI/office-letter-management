@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.analytics import router as analytics_router
 from app.api.v1.activity import router as activity_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.reference import router as reference_router
@@ -26,3 +27,4 @@ api_router.include_router(closure_router)
 api_router.include_router(activity_router)
 api_router.include_router(reports_router)
 api_router.include_router(notices_router)
+api_router.include_router(analytics_router)

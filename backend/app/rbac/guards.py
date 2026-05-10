@@ -58,12 +58,12 @@ def require_consultant_workspace_actor():
 
 
 def require_letter_list_actor():
-    """GET /letters list: workflow roles (incl. Consultant), Admin, or ``letters:view`` / ``closure:view``.
+    """GET /letters list: workflow roles (incl. Consultant), Admin, or ``letters:view`` / ``closure:view`` / ``assignment:view``.
 
-    Closure queue UIs call this endpoint with ``closure:*`` grants without requiring full Letters Browse.
+    Closure and assignment queue UIs call this endpoint with matrix grants without requiring full Letters Browse.
     """
 
-    _keys = (PK.LETTERS_VIEW, PK.CLOSURE_VIEW)
+    _keys = (PK.LETTERS_VIEW, PK.CLOSURE_VIEW, PK.ASSIGNMENT_VIEW)
     _roles = expand_role_names(
         Roles.ADMIN,
         Roles.RECEIVING_OFFICER,
@@ -82,6 +82,105 @@ def require_letter_list_actor():
             return current_user
         svc = PermissionService(db)
         if any(svc.user_has_permission(current_user, k) for k in _keys):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this resource. Contact an administrator if you need a role or screen permission updated.",
+        )
+
+    return _guard
+
+
+def require_assignment_queue_actor():
+    """GET /assignments/queue: Admin, Team Leader, or ``assignment:view`` (Assignment screen)."""
+
+    _roles = expand_role_names(Roles.ADMIN, Roles.TEAM_LEADER)
+    _keys = (PK.ASSIGNMENT_VIEW,)
+
+    def _guard(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)],
+    ) -> User:
+        if is_system_admin(current_user):
+            return current_user
+        if user_role_names(current_user) & _roles:
+            return current_user
+        svc = PermissionService(db)
+        if any(svc.user_has_permission(current_user, k) for k in _keys):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this resource. Contact an administrator if you need a role or screen permission updated.",
+        )
+
+    return _guard
+
+
+def require_assignment_tracking_actor():
+    """GET /assignments/letters/{id}/tracking: workflow roles or matrix view keys (incl. assignment-only)."""
+
+    _keys = (
+        PK.ASSIGNMENT_VIEW,
+        PK.LETTERS_VIEW,
+        PK.CONSULTANT_VIEW,
+        PK.APPROVAL_VIEW,
+        PK.CLOSURE_VIEW,
+    )
+    _roles = expand_role_names(
+        Roles.ADMIN,
+        Roles.TEAM_LEADER,
+        Roles.APPROVAL_HEAD,
+        Roles.RECEIVING_OFFICER,
+        Roles.CONSULTANT,
+    )
+
+    def _guard(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)],
+    ) -> User:
+        if is_system_admin(current_user):
+            return current_user
+        if user_role_names(current_user) & _roles:
+            return current_user
+        svc = PermissionService(db)
+        if any(svc.user_has_permission(current_user, k) for k in _keys):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this resource. Contact an administrator if you need a role or screen permission updated.",
+        )
+
+    return _guard
+
+
+def require_letter_detail_read_actor():
+    """GET single letter, attachment, or action-history: workflow roles or matrix view keys (letters / consultant / approval / assignment / closure)."""
+
+    _roles = expand_role_names(
+        Roles.ADMIN,
+        Roles.RECEIVING_OFFICER,
+        Roles.APPROVAL_HEAD,
+        Roles.TEAM_LEADER,
+        Roles.CONSULTANT,
+    )
+    _perm_keys = (
+        PK.LETTERS_VIEW,
+        PK.CONSULTANT_VIEW,
+        PK.APPROVAL_VIEW,
+        PK.ASSIGNMENT_VIEW,
+        PK.CLOSURE_VIEW,
+    )
+
+    def _guard(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[Session, Depends(get_db)],
+    ) -> User:
+        if is_system_admin(current_user):
+            return current_user
+        if user_role_names(current_user) & _roles:
+            return current_user
+        svc = PermissionService(db)
+        if any(svc.user_has_permission(current_user, k) for k in _perm_keys):
             return current_user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

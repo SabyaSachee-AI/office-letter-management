@@ -1,13 +1,14 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from sqlalchemy import and_, func, select, true
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.activity import AuditLog, LoginLog
 from app.models.letter import Letter, LetterAssignment, LetterStatus
 from app.models.user import User
 from app.rbac.roles import Roles, has_role_name, is_system_admin
+from app.services.letter_list_order import apply_letters_newest_activity_order
 
 
 def _is_admin(user: User) -> bool:
@@ -60,7 +61,13 @@ class ReportsService:
         conds: list = []
         eff = self._effective_department_id(user, filters.department_id)
         if eff is not None:
-            conds.append(Letter.department_id == eff)
+            if _is_admin(user) or _is_receiving_officer(user) or _is_approval_head(user):
+                conds.append(Letter.department_id == eff)
+            else:
+                assignee_any = Letter.id.in_(
+                    select(LetterAssignment.letter_id).where(LetterAssignment.consultant_id == user.id)
+                )
+                conds.append(or_(Letter.department_id == eff, assignee_any))
         elif not _is_admin(user) and not _is_receiving_officer(user) and not _is_approval_head(user):
             conds.append(Letter.id == -1)
         if filters.date_from is not None:
@@ -257,12 +264,5 @@ class ReportsService:
     def list_letters_for_export(self, user: User, filters: ReportFilters, *, limit: int = 5000) -> list:
         conds = self._letter_conditions(user, filters)
         wc = self._where(conds)
-        return list(
-            self.db.scalars(
-                select(Letter)
-                .options(selectinload(Letter.department))
-                .where(wc)
-                .order_by(Letter.id.desc())
-                .limit(limit)
-            ).all()
-        )
+        base = select(Letter).options(selectinload(Letter.department)).where(wc)
+        return list(self.db.scalars(apply_letters_newest_activity_order(base).limit(limit)).all())

@@ -2,13 +2,16 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
-from app.models.letter import AssignmentWorkStatus
+from app.models.activity import NotificationKind
+from app.models.letter import AssignmentWorkStatus, Letter, LetterAssignment
 from app.models.user import User
 from app.rbac.guards import require_any_permission, require_consultant_workspace_actor
 from app.rbac.permissions import PermissionKey
+from app.rbac.roles import Roles, has_role_name
 from app.schemas.assignment import AssignmentOut
 from app.schemas.consultant import (
     ConsultantAssignedLetterListOut,
@@ -18,6 +21,7 @@ from app.schemas.consultant import (
     ConsultantTransferIn,
 )
 from app.schemas.department import DepartmentOut
+from app.services.activity_service import ActivityService
 from app.services.assignment_service import AssignmentService
 from app.services.consultant_service import ConsultantService
 
@@ -92,6 +96,41 @@ def update_assignment_status(
             comment=payload.comment.strip(),
             consultant_user=current_user,
         )
+        ActivityService(db).record_audit(
+            actor_user_id=current_user.id,
+            action="consultant_status_updated",
+            module="consultant",
+            description="Consultant updated assignment status",
+            resource_type="assignment",
+            resource_id=updated.id,
+            entity_type="letter",
+            entity_id=updated.letter_id,
+            detail={"work_status": payload.work_status.value, "assignment_id": updated.id},
+        )
+        if payload.work_status == AssignmentWorkStatus.RESOLVED:
+            letter = db.get(Letter, updated.letter_id)
+            if letter is not None and letter.department_id is not None:
+                ActivityService(db).notify_team_leaders_for_department(
+                    department_id=letter.department_id,
+                    letter_id=letter.id,
+                    serial_no=letter.serial_no,
+                    subject=letter.subject,
+                    title_prefix="Consultant resolved",
+                    event_code="consultant.resolved",
+                )
+            ActivityService(db).create_notification(
+                user_id=updated.assigned_by,
+                kind=NotificationKind.SYSTEM,
+                title=f"Consultant resolved: letter #{updated.letter_id}",
+                body="An assigned consultant marked work as resolved.",
+                letter_id=updated.letter_id,
+                link_path=f"/dashboard/assignment/{updated.letter_id}",
+                event_code="consultant.resolved",
+                route_module="assignment",
+                entity_type="letter",
+                entity_id=updated.letter_id,
+            )
+        db.commit()
         return assign_service.enrich_assignments([updated])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -117,6 +156,18 @@ def add_resolution_note(
             comment=payload.comment.strip(),
             consultant_user=current_user,
         )
+        ActivityService(db).record_audit(
+            actor_user_id=current_user.id,
+            action="consultant_resolution_added",
+            module="consultant",
+            description="Consultant added resolution note",
+            resource_type="assignment",
+            resource_id=updated.id,
+            entity_type="letter",
+            entity_id=updated.letter_id,
+            detail={"assignment_id": updated.id},
+        )
+        db.commit()
         return assign_service.enrich_assignments([updated])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -142,6 +193,22 @@ def upload_solution_file(
             comment=comment.strip(),
             consultant_user=current_user,
         )
+        la = db.get(LetterAssignment, result.assignment_id)
+        ActivityService(db).record_audit(
+            actor_user_id=current_user.id,
+            action="consultant_solution_uploaded",
+            module="consultant",
+            description="Consultant uploaded solution file",
+            resource_type="assignment_solution",
+            resource_id=result.id,
+            entity_type="letter",
+            entity_id=la.letter_id if la else None,
+            detail={
+                "file_path": result.file_path,
+                "assignment_id": result.assignment_id,
+            },
+        )
+        db.commit()
         return {"file_path": result.file_path}
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -161,12 +228,54 @@ def transfer_assignment(
     service = ConsultantService(db)
     assign_service = AssignmentService(db)
     try:
+        prev_row = db.get(LetterAssignment, assignment_id)
+        previous_assignee_id = prev_row.consultant_id if prev_row else None
         new_assignment = service.transfer_assignment(
             assignment_id=assignment_id,
-            target_consultant_id=payload.target_consultant_id,
+            target_user_id=payload.target_user_id,
             comment=payload.comment.strip(),
             consultant_user=current_user,
+            deadline_at=payload.deadline_at,
         )
+        target = db.scalar(
+            select(User)
+            .options(selectinload(User.roles), selectinload(User.department))
+            .where(User.id == payload.target_user_id)
+        )
+        target_roles = [r.name for r in getattr(target, "roles", [])] if target else []
+        target_role = (
+            "Team Leader"
+            if target and has_role_name(target, Roles.TEAM_LEADER)
+            else "Consultant"
+        )
+        actor_roles = [r.name for r in current_user.roles]
+        tdept = None
+        if target is not None and getattr(target, "department", None) is not None:
+            tdept = f"{target.department.name} ({target.department.code})"
+        ActivityService(db).record_audit(
+            actor_user_id=current_user.id,
+            action="consultant_transferred",
+            module="consultant",
+            description="Consultant transferred or forwarded an assignment",
+            resource_type="assignment",
+            resource_id=new_assignment.id,
+            entity_type="letter",
+            entity_id=new_assignment.letter_id,
+            detail={
+                "target_user_id": payload.target_user_id,
+                "target_full_name": target.full_name if target else None,
+                "target_email": str(target.email) if target else None,
+                "target_role": target_role,
+                "target_roles": target_roles,
+                "target_department": tdept,
+                "actor_roles": actor_roles,
+                "previous_assignee_id": previous_assignee_id,
+                "workflow_note": payload.comment.strip()[:2000],
+                "transfer_note": payload.comment.strip()[:2000],
+                "assignment_id": new_assignment.id,
+            },
+        )
+        db.commit()
         return assign_service.enrich_assignments([new_assignment])[0]
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

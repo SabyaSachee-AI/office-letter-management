@@ -20,12 +20,18 @@ type LetterAttachmentPreviewPaneProps = {
   letterId: number;
   pdfPath: string;
   className?: string;
+  /** Taller reading area and tuned iframe sizing for document-first letter review. */
+  variant?: "default" | "documentFirst";
+  /** Hide the monospace filename under the toolbar (e.g. when shown in the page header). */
+  hideFileNameCaption?: boolean;
 };
 
 export function LetterAttachmentPreviewPane({
   letterId,
   pdfPath,
   className,
+  variant = "default",
+  hideFileNameCaption = false,
 }: LetterAttachmentPreviewPaneProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -69,18 +75,21 @@ export function LetterAttachmentPreviewPane({
   const isImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].some((ext) => lowerName.endsWith(ext));
   const isPdf = lowerName.endsWith(".pdf");
 
+  const docFirst = variant === "documentFirst";
+
   return (
     <TooltipProvider delay={300}>
       <section
         className={cn(
           "flex min-h-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/90 p-3 shadow-sm sm:p-4",
+          docFirst && "min-w-0 lg:shadow-md",
           className
         )}
       >
         <div className="flex flex-shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <h3 className="text-xs font-semibold tracking-wide text-[#123f63] uppercase sm:text-sm sm:normal-case sm:tracking-normal">
-          Attachment preview
-        </h3>
+            {docFirst ? "Document" : "Attachment preview"}
+          </h3>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <Button
               size="sm"
@@ -155,14 +164,18 @@ export function LetterAttachmentPreviewPane({
           </div>
         </div>
 
-        <p className="text-muted-foreground flex-shrink-0 font-mono text-[11px] break-all">
-          {fileName}
-        </p>
+        {!hideFileNameCaption ? (
+          <p className="text-muted-foreground flex-shrink-0 font-mono text-[11px] break-all">
+            {fileName}
+          </p>
+        ) : null}
 
         <div
           className={cn(
             "min-h-0 min-w-0 flex-1 overflow-auto rounded-xl border border-slate-200 bg-white p-2 shadow-inner",
-            "min-h-[min(82vh,920px)] lg:min-h-[min(88vh,960px)]",
+            docFirst
+              ? "min-h-[min(76vh,860px)] lg:min-h-[min(84vh,1040px)]"
+              : "min-h-[min(82vh,920px)] lg:min-h-[min(88vh,960px)]",
             viewerMode === "fitPage" ? "flex items-start justify-center" : ""
           )}
         >
@@ -187,8 +200,12 @@ export function LetterAttachmentPreviewPane({
               className={cn(
                 "origin-top-left rounded-lg border border-slate-100",
                 viewerMode === "fitPage"
-                  ? "h-[min(88vh,1200px)] w-full max-w-5xl"
-                  : "min-h-[min(75vh,640px)] w-full lg:min-h-[min(82vh,720px)]"
+                  ? docFirst
+                    ? "h-[min(84vh,1280px)] w-full max-w-6xl"
+                    : "h-[min(88vh,1200px)] w-full max-w-5xl"
+                  : docFirst
+                    ? "min-h-[min(72vh,680px)] w-full lg:min-h-[min(80vh,900px)]"
+                    : "min-h-[min(75vh,640px)] w-full lg:min-h-[min(82vh,720px)]"
               )}
               style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
             />

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.models.letter import AssignmentWorkStatus
 from app.models.user import User
@@ -28,15 +28,19 @@ def assignment_user_brief(user: User) -> AssignmentUserBrief:
 
 
 class AssignConsultantIn(BaseModel):
-    consultant_id: int
-    deadline_at: datetime
-    comment: str = Field(min_length=2, max_length=500)
+    """Assign or forward to any active Team Leader or Consultant (``consultant_id`` kept as legacy alias)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    target_user_id: int = Field(validation_alias=AliasChoices("target_user_id", "consultant_id"))
+    deadline_at: datetime | None = None
+    comment: str = Field(min_length=2, max_length=2000)
 
 
 class ReassignConsultantIn(BaseModel):
-    consultant_id: int
-    deadline_at: datetime
-    comment: str = Field(min_length=2, max_length=500)
+    model_config = ConfigDict(populate_by_name=True)
+    target_user_id: int = Field(validation_alias=AliasChoices("target_user_id", "consultant_id"))
+    deadline_at: datetime | None = None
+    comment: str = Field(min_length=2, max_length=2000)
 
 
 class AssignmentOut(BaseModel):
@@ -44,7 +48,7 @@ class AssignmentOut(BaseModel):
     letter_id: int
     consultant_id: int
     assigned_by: int
-    deadline_at: datetime
+    deadline_at: datetime | None = None
     is_active: bool
     work_status: AssignmentWorkStatus
     resolution_note: str | None

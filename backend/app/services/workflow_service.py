@@ -7,6 +7,7 @@ from app.models.department import Department
 from app.models.letter import Letter, LetterAction, LetterActionType, LetterPriority, LetterStatus
 from app.models.user import User
 from app.rbac.roles import is_system_admin
+from app.services.letter_list_order import apply_letters_newest_activity_order
 
 
 class WorkflowService:
@@ -94,8 +95,9 @@ class WorkflowService:
         total = self.db.scalar(count_stmt) or 0
         items = list(
             self.db.scalars(
-                base.options(selectinload(Letter.department))
-                .order_by(Letter.id.desc())
+                apply_letters_newest_activity_order(
+                    base.options(selectinload(Letter.department))
+                )
                 .offset(offset)
                 .limit(limit)
             ).all()

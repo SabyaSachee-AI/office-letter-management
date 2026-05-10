@@ -46,6 +46,8 @@ def review_solution(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="closure_review_solution",
+            module="closure",
+            description="Reviewed consultant solution",
             resource_type="letter",
             resource_id=letter_id,
             detail=None,
@@ -73,6 +75,8 @@ def add_final_comment(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="closure_final_comment",
+            module="closure",
+            description="Added final closure comment",
             resource_type="letter",
             resource_id=letter_id,
             detail=None,
@@ -100,6 +104,8 @@ def close_issue(
         ActivityService(db).record_audit(
             actor_user_id=current_user.id,
             action="closure_close_issue",
+            module="closure",
+            description="Closed letter in closure workflow",
             resource_type="letter",
             resource_id=letter_id,
             detail=None,

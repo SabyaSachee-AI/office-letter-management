@@ -10,8 +10,14 @@ export function pathRequiresScreens(pathname: string): string[] | null {
   if (pathname === "/dashboard") return ["dashboard:view"];
   if (pathname.startsWith("/dashboard/reports")) return ["reports:view"];
   if (pathname.startsWith("/dashboard/approval")) return ["approval:view"];
+  if (/^\/dashboard\/assignment\/\d+(?:\/|$)/.test(pathname)) {
+    return ["assignment:view", "consultant:view"];
+  }
   if (pathname.startsWith("/dashboard/assignment")) return ["assignment:view"];
   if (pathname.startsWith("/dashboard/consultant")) return ["consultant:view"];
+  if (/^\/dashboard\/closure\/\d+(?:\/|$)/.test(pathname)) {
+    return ["closure:view", "letters:view", "letters:create"];
+  }
   if (pathname.startsWith("/dashboard/closure")) return ["closure:view"];
   if (pathname.startsWith("/dashboard/notifications")) return ["notifications:view"];
   if (pathname.startsWith("/dashboard/users")) return ["users:view"];

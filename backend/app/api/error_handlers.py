@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from starlette.exceptions import HTTPException
 
 logger = logging.getLogger("app.errors")
@@ -116,6 +117,32 @@ async def validation_exception_handler(
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, ProgrammingError):
+        logger.exception("SQL error (schema/SQL) %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": "database_schema_mismatch",
+                "message": (
+                    "The database schema does not match this application version. "
+                    "From the `backend` folder, run: alembic upgrade head — then restart the API."
+                ),
+                "code": "database_schema",
+            },
+        )
+    if isinstance(exc, OperationalError):
+        logger.exception("Database connection error %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": "database_unavailable",
+                "message": (
+                    "Cannot reach the database. Ensure the server is running and "
+                    "DATABASE_URL in your environment matches the running database."
+                ),
+                "code": "database_unavailable",
+            },
+        )
     logger.exception(
         "Unhandled error %s %s",
         request.method,

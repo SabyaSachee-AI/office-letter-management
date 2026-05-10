@@ -6,9 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { AppSidebar } from "@/components/dashboard/app-sidebar";
 import { ScreenGuard } from "@/components/dashboard/screen-guard";
+import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { FullPageLoading } from "@/components/layout/full-page-loading";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
+import { userHasPermission } from "@/lib/auth/permissions";
 
 const SIDEBAR_COLLAPSED_KEY = "olm-dashboard-sidebar-collapsed";
 
@@ -101,6 +103,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {userHasPermission(user, "notifications:view") ? <NotificationBell /> : null}
             <span className="text-foreground hidden max-w-[200px] truncate text-sm font-medium md:inline">
               {user.full_name}
             </span>

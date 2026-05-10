@@ -70,12 +70,13 @@ export async function uploadSolutionFile(
 
 export async function transferAssignment(
   assignmentId: number,
-  target_consultant_id: number,
-  comment: string
+  target_user_id: number,
+  comment: string,
+  deadline_at?: string | null
 ): Promise<AssignmentOut> {
   const { data } = await api.post<AssignmentOut>(
     `/api/v1/consultant/assignments/${assignmentId}/transfer`,
-    { target_consultant_id, comment }
+    { target_user_id, comment, deadline_at: deadline_at ?? undefined }
   );
   return data;
 }

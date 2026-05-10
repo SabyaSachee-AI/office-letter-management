@@ -75,8 +75,13 @@ def list_consultants_for_assignment(
     "/assignable-workflow-users",
     response_model=UserListResponse,
     dependencies=[
-        Depends(require_any_permission(PermissionKey.ASSIGNMENT_ASSIGN)),
-        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER)),
+        Depends(
+            require_any_permission(
+                PermissionKey.ASSIGNMENT_ASSIGN,
+                PermissionKey.CONSULTANT_TRANSFER,
+            )
+        ),
+        Depends(require_roles(Roles.SYSTEM_ADMIN, Roles.TEAM_LEADER, Roles.CONSULTANT)),
     ],
 )
 def list_assignable_workflow_users(
@@ -163,6 +168,8 @@ def create_user(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_created",
+            module="users",
+            description="Created user account",
             resource_type="user",
             resource_id=user.id,
             detail={"email": user.email},
@@ -228,6 +235,8 @@ def update_user(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_updated",
+            module="users",
+            description="Updated user profile",
             resource_type="user",
             resource_id=user_id,
             detail={"fields": list(payload.model_dump(exclude_unset=True).keys())},
@@ -258,6 +267,8 @@ def delete_user(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_deactivated" if action == "deactivated" else "user_deleted",
+            module="users",
+            description="Deactivated user account" if action == "deactivated" else "Deleted user account",
             resource_type="user",
             resource_id=user_id,
             detail={"result": action},
@@ -288,6 +299,8 @@ def assign_roles(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_roles_updated",
+            module="users",
+            description="Updated user roles",
             resource_type="user",
             resource_id=user_id,
             detail={"role_ids": payload.role_ids},
@@ -319,6 +332,8 @@ def assign_department(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_department_assigned",
+            module="users",
+            description="Assigned user department",
             resource_type="user",
             resource_id=user_id,
             detail={"department_id": payload.department_id},
@@ -350,6 +365,8 @@ def update_status(
         ActivityService(db).record_audit(
             actor_user_id=actor.id,
             action="user_status_updated",
+            module="users",
+            description="Updated user status",
             resource_type="user",
             resource_id=user_id,
             detail={"status": payload.status.value},

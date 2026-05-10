@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -9,6 +9,7 @@ from app.core.letter_access import (
     letter_visibility_clause,
 )
 from app.rbac.roles import Roles
+from app.services.permission_service import PermissionService
 
 
 class _Role:
@@ -61,14 +62,32 @@ def test_create_letter_receiving_officer_allows_null_or_any_department():
     assert_user_can_create_in_department(u, 99)
 
 
-def test_assign_team_lead_wrong_department():
+@patch("app.core.letter_access.can_view_letter", return_value=False)
+@patch.object(PermissionService, "user_has_permission", return_value=True)
+def test_assign_team_lead_wrong_department(_mock_perm, _mock_cv):
+    db = MagicMock()
+    db.scalar = MagicMock(return_value=None)
     lead = MagicMock()
     lead.roles = [_Role(Roles.TEAM_LEADER)]
     lead.department_id = 1
+    lead.team_department_id = None
     letter = MagicMock()
+    letter.id = 99
     letter.department_id = 2
-    with pytest.raises(ValueError, match="outside your department"):
-        assert_assigning_user_can_access_letter(lead, letter)
+    with pytest.raises(ValueError, match="cannot assign or forward"):
+        assert_assigning_user_can_access_letter(db, lead, letter)
+
+
+def test_assign_team_lead_ok_when_active_recipient_other_department():
+    db = MagicMock()
+    db.scalar = MagicMock(return_value=99)
+    lead = MagicMock()
+    lead.roles = [_Role(Roles.TEAM_LEADER)]
+    lead.department_id = 1
+    lead.team_department_id = None
+    letter = MagicMock()
+    letter.department_id = 999
+    assert_assigning_user_can_access_letter(db, lead, letter)
 
 
 def test_assign_admin_ok():
@@ -76,4 +95,5 @@ def test_assign_admin_ok():
     admin.roles = [_Role(Roles.ADMIN)]
     letter = MagicMock()
     letter.department_id = 99
-    assert_assigning_user_can_access_letter(admin, letter)
+    db = MagicMock()
+    assert_assigning_user_can_access_letter(db, admin, letter)

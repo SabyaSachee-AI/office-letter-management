@@ -184,3 +184,184 @@
     font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   }
 }
+
+/* Screen only: print summaries stay out of layout until print. */
+.olm-print-summary-root,
+.olm-reports-print-root {
+  display: none;
+}
+
+/* Dashboard + Reports: browser print (A4 landscape), hide chrome. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Flatten flex “app shell” so print isn’t a tiny strip at the top of a tall min-h-screen column. */
+  .olm-dashboard {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    width: 100% !important;
+    background: #fff !important;
+  }
+
+  .olm-dashboard > div.flex.min-h-0.min-w-0 {
+    display: block !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .olm-dashboard > aside {
+    display: none !important;
+  }
+
+  .olm-dashboard > div.flex.min-h-0.min-w-0 > header {
+    display: none !important;
+  }
+
+  .olm-dashboard > div.flex.min-h-0.min-w-0 > div.flex-1 {
+    display: block !important;
+    flex: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* Remove stacked spacing between hidden siblings and the print block. */
+  .olm-dashboard-page > *,
+  .olm-reports-page > * {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  .olm-print-summary-root,
+  .olm-reports-print-root {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box;
+    font-size: 9pt;
+    line-height: 1.25;
+    color: #111;
+  }
+
+  .olm-print-summary-root table,
+  .olm-reports-print-root table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .olm-print-summary-root th,
+  .olm-print-summary-root td,
+  .olm-reports-print-root th,
+  .olm-reports-print-root td {
+    border: 1px solid #999;
+    padding: 2px 4px;
+    vertical-align: top;
+  }
+
+  .olm-print-summary-root th,
+  .olm-reports-print-root th {
+    background: #eee !important;
+    font-weight: 600;
+  }
+
+  .olm-print-summary-root .print-summary-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  /* Portrait A4: stack full-width blocks so tables stay readable. */
+  .olm-print-summary-root .print-summary-two-col {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    align-items: start;
+  }
+
+  .olm-print-summary-root .metric-cell {
+    border: 1px solid #999;
+    padding: 4px 4px;
+    text-align: center;
+    border-radius: 2px;
+  }
+
+  .olm-print-summary-root .metric-cell .v,
+  .olm-reports-print-root .metric-cell .v {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #123f63;
+  }
+
+  .olm-reports-print-root .olm-reports-print-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    break-inside: avoid;
+  }
+
+  .olm-reports-print-root .olm-reports-print-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+
+  .olm-reports-print-root .metric-cell {
+    border: 1px solid #999;
+    padding: 4px 4px;
+    text-align: center;
+    border-radius: 2px;
+  }
+
+  .olm-print-summary-root > header,
+  .olm-reports-print-root > header {
+    margin: 0 0 6px !important;
+    padding: 0 0 4px !important;
+    border-bottom: 1px solid #999 !important;
+  }
+
+  .olm-print-summary-root > header h1,
+  .olm-reports-print-root > header h1 {
+    font-size: 13pt !important;
+    margin: 0 0 2px !important;
+    line-height: 1.2 !important;
+  }
+
+  .olm-print-summary-root section,
+  .olm-reports-print-root section {
+    margin: 0 0 6px !important;
+  }
+
+  .olm-print-summary-root h2,
+  .olm-reports-print-root h2 {
+    font-size: 10pt !important;
+    margin: 0 0 3px !important;
+  }
+
+  .olm-print-summary-root > header,
+  .olm-print-summary-root .print-summary-metric-grid {
+    break-inside: avoid;
+  }
+
+  .olm-reports-print-root > header,
+  .olm-reports-print-root .olm-reports-print-metric-grid {
+    break-inside: avoid;
+  }
+}

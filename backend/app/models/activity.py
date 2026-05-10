@@ -20,7 +20,15 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    user_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    role: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    module: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     resource_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     resource_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     detail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -76,6 +84,10 @@ class Notification(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     letter_id: Mapped[int | None] = mapped_column(ForeignKey("letters.id"), nullable=True, index=True)
     link_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    event_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    route_module: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

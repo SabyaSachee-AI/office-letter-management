@@ -6,23 +6,29 @@ import Link from "next/link";
 import { AssignmentRecipientSummary } from "@/components/letters/assignment-recipient-summary";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/context/auth-context";
 import { getApiErrorMessage } from "@/lib/api/error-message";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { userHasPermission } from "@/lib/auth/permissions";
 import {
   addResolutionNote,
   transferAssignment,
   updateAssignmentStatus,
   uploadSolutionFile,
 } from "@/lib/api/consultant";
-import { listConsultantsDirectory } from "@/lib/api/users";
-import type { ConsultantAssignmentRow } from "@/types/letter";
+import { listAssignableWorkflowUsers } from "@/lib/api/users";
+import { assignForwardRecipientLabel, primaryWorkflowRoleLabel } from "@/lib/workflow-user-label";
+import type { ConsultantAssignmentRow, LetterStatus } from "@/types/letter";
 import type { UserOut } from "@/types/user";
 import { cn } from "@/lib/utils";
 
 type ConsultantAssignmentWorkProps = {
   row: ConsultantAssignmentRow;
   departmentId: number;
+  /** Letter lifecycle status — blocks transfer when closed or rejected */
+  letterStatus?: LetterStatus;
   onUpdated: () => void;
   /** Latest Team Leader comment from workflow (letter detail sidebar) */
   teamLeaderComment?: string | null;
@@ -31,9 +37,12 @@ type ConsultantAssignmentWorkProps = {
 export function ConsultantAssignmentWork({
   row,
   departmentId,
+  letterStatus,
   onUpdated,
   teamLeaderComment = null,
 }: ConsultantAssignmentWorkProps) {
+  const { user } = useAuth();
+  const canTransfer = userHasPermission(user, "consultant:transfer");
   const aid = row.assignment.id;
   const [resolveComment, setResolveComment] = useState("");
   const [resNote, setResNote] = useState("");
@@ -42,6 +51,7 @@ export function ConsultantAssignmentWork({
   const [fileComment, setFileComment] = useState("");
   const [transferTo, setTransferTo] = useState("");
   const [transferComment, setTransferComment] = useState("");
+  const [transferDeadline, setTransferDeadline] = useState("");
   const [peers, setPeers] = useState<UserOut[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,7 +60,7 @@ export function ConsultantAssignmentWork({
     let cancelled = false;
     (async () => {
       try {
-        const items = await listConsultantsDirectory();
+        const items = await listAssignableWorkflowUsers();
         const others = items.filter((u) => u.id !== row.assignment.consultant_id);
         if (!cancelled) setPeers(others);
       } catch {
@@ -61,6 +71,12 @@ export function ConsultantAssignmentWork({
       cancelled = true;
     };
   }, [departmentId, row.assignment.consultant_id]);
+
+  const transferBlockedByLetter = letterStatus === "closed" || letterStatus === "rejected";
+  const transferDisabled =
+    row.assignment.work_status === "resolved" ||
+    transferBlockedByLetter ||
+    !canTransfer;
 
   async function submit(
     fn: () => Promise<unknown>,
@@ -100,7 +116,10 @@ export function ConsultantAssignmentWork({
           </Link>
         </div>
         <p className="text-muted-foreground text-[11px]">
-          Deadline: {new Date(row.deadline_at).toLocaleString()} · Assignment #{aid}
+          {row.deadline_at
+            ? `Deadline: ${new Date(row.deadline_at).toLocaleString()} · `
+            : "No deadline set · "}
+          Assignment #{aid}
         </p>
         <p className="text-muted-foreground text-[11px] leading-snug">{row.subject}</p>
       </div>
@@ -120,8 +139,9 @@ export function ConsultantAssignmentWork({
         <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm">
           <p className="text-sm font-semibold text-[#123f63]">Your actions</p>
           <p className="text-muted-foreground text-xs leading-relaxed">
-            Add a solution note, upload evidence, mark the assignment resolved, or transfer to
-            another consultant. Prior notes remain in the workflow history under the attachment.
+            Add a solution note, upload evidence, mark the assignment resolved, or transfer /
+            forward to another Consultant or Team Leader when permitted. Prior notes remain in the
+            workflow history under the attachment.
           </p>
 
           <div className="space-y-2">
@@ -233,50 +253,119 @@ export function ConsultantAssignmentWork({
 
           <Separator />
 
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">Transfer to another consultant</h4>
-            <select
-              title="Transfer consultant"
-              className="border-input h-9 w-full max-w-md rounded-md border px-2 text-sm"
-              value={transferTo}
-              onChange={(e) => setTransferTo(e.target.value)}
-              disabled={row.assignment.work_status === "resolved"}
-            >
-              <option value="">Select consultant…</option>
-              {peers.map((u) => (
-                <option key={u.id} value={String(u.id)}>
-                  {u.full_name} — {u.department?.name ?? "No Department"} — {u.email}
-                </option>
-              ))}
-            </select>
-            <Input
-              placeholder="Transfer comment (min 2 characters)"
-              value={transferComment}
-              onChange={(e) => setTransferComment(e.target.value)}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={
-                busy ||
-                !transferTo ||
-                transferComment.trim().length < 2 ||
-                row.assignment.work_status === "resolved"
-              }
-              onClick={() =>
-                void submit(
-                  () => transferAssignment(aid, Number(transferTo), transferComment.trim()),
-                  () => {
-                    setTransferTo("");
-                    setTransferComment("");
-                  },
-                  "Assignment transferred."
-                )
-              }
-            >
-              Transfer
-            </Button>
-          </div>
+          {canTransfer ? (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-slate-800">Assign / Forward</h4>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                Send this letter to any active Team Leader or Consultant in any department. A
+                workflow note is required. Deadline is optional. You cannot forward when the letter is
+                closed or rejected.
+              </p>
+              {transferBlockedByLetter && letterStatus ? (
+                <p className="text-amber-900 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs">
+                  Transfers are disabled because this letter is {letterStatus}.
+                </p>
+              ) : null}
+              <div className="grid gap-1.5">
+                <Label htmlFor="consult-transfer-to" className="text-xs font-medium">
+                  Recipient
+                </Label>
+                <select
+                  id="consult-transfer-to"
+                  title="Recipient"
+                  className="border-input h-9 w-full max-w-md rounded-md border px-2 text-sm"
+                  value={transferTo}
+                  onChange={(e) => setTransferTo(e.target.value)}
+                  disabled={transferDisabled}
+                >
+                  <option value="">Select recipient…</option>
+                  {peers.filter((u) => primaryWorkflowRoleLabel(u) === "Team Leader").length > 0 ? (
+                    <optgroup label="Team Leaders">
+                      {peers
+                        .filter((u) => primaryWorkflowRoleLabel(u) === "Team Leader")
+                        .map((u) => (
+                          <option key={u.id} value={String(u.id)}>
+                            {assignForwardRecipientLabel(u)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {peers.filter((u) => primaryWorkflowRoleLabel(u) === "Consultant").length > 0 ? (
+                    <optgroup label="Consultants">
+                      {peers
+                        .filter((u) => primaryWorkflowRoleLabel(u) === "Consultant")
+                        .map((u) => (
+                          <option key={u.id} value={String(u.id)}>
+                            {assignForwardRecipientLabel(u)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="consult-transfer-deadline" className="text-xs font-medium">
+                  Deadline (optional)
+                </Label>
+                <Input
+                  id="consult-transfer-deadline"
+                  type="datetime-local"
+                  title="Deadline"
+                  className="border-input h-9 max-w-md"
+                  value={transferDeadline}
+                  onChange={(e) => setTransferDeadline(e.target.value)}
+                  disabled={transferDisabled}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="consult-transfer-note" className="text-xs font-medium">
+                  Workflow note / comment
+                </Label>
+                <textarea
+                  id="consult-transfer-note"
+                  title="Workflow note"
+                  className="border-input min-h-[88px] w-full max-w-md rounded-md border px-3 py-2 text-sm"
+                  placeholder="Required (min 2 characters)…"
+                  value={transferComment}
+                  onChange={(e) => setTransferComment(e.target.value)}
+                  disabled={transferDisabled}
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  busy ||
+                  !transferTo ||
+                  transferComment.trim().length < 2 ||
+                  transferDisabled
+                }
+                onClick={() =>
+                  void submit(
+                    () => {
+                      let dl: string | null | undefined;
+                      if (transferDeadline.trim()) {
+                        const d = new Date(transferDeadline);
+                        if (Number.isNaN(d.getTime())) throw new Error("Invalid deadline.");
+                        dl = d.toISOString();
+                      } else {
+                        dl = undefined;
+                      }
+                      return transferAssignment(aid, Number(transferTo), transferComment.trim(), dl);
+                    },
+                    () => {
+                      setTransferTo("");
+                      setTransferComment("");
+                      setTransferDeadline("");
+                    },
+                    "Forward completed."
+                  )
+                }
+              >
+                Forward
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

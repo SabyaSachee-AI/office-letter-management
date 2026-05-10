@@ -52,7 +52,12 @@ class ClosureService:
             Roles.CONSULTANT,
         ):
             return True
-        return PermissionService(self.db).user_has_permission(user, PermissionKey.CLOSURE_VIEW)
+        svc = PermissionService(self.db)
+        if svc.user_has_permission(user, PermissionKey.APPROVAL_VIEW):
+            return True
+        if svc.user_has_permission(user, PermissionKey.ASSIGNMENT_VIEW):
+            return True
+        return svc.user_has_permission(user, PermissionKey.CLOSURE_VIEW)
 
     def _get_letter(self, letter_id: int, *, with_actions: bool = True) -> Letter:
         stmt = select(Letter).options(selectinload(Letter.department))
@@ -87,13 +92,26 @@ class ClosureService:
             raise ValueError("Letter not found")
 
     def _active_assignment(self, letter_id: int) -> LetterAssignment | None:
-        return self.db.scalar(
+        """Latest active assignment (single-holder model)."""
+        return self.db.scalars(
             select(LetterAssignment)
             .options(selectinload(LetterAssignment.files))
             .where(
                 LetterAssignment.letter_id == letter_id,
                 LetterAssignment.is_active.is_(True),
             )
+            .order_by(LetterAssignment.id.desc())
+            .limit(1)
+        ).first()
+
+    def _all_active_assignments(self, letter_id: int) -> list[LetterAssignment]:
+        return list(
+            self.db.scalars(
+                select(LetterAssignment).where(
+                    LetterAssignment.letter_id == letter_id,
+                    LetterAssignment.is_active.is_(True),
+                )
+            ).all()
         )
 
     def _append_action(
@@ -173,19 +191,28 @@ class ClosureService:
         letter.closed_at = datetime.now(timezone.utc)
         letter.closed_by = user.id
 
-        assignment = self._active_assignment(letter_id)
-        if assignment:
+        for assignment in self._all_active_assignments(letter_id):
             assignment.is_active = False
             assignment.work_status = AssignmentWorkStatus.RESOLVED
             assignment.updated_at = datetime.now(timezone.utc)
 
-        ActivityService(self.db).create_notification(
-            user_id=letter.created_by,
-            kind=NotificationKind.LETTER_CLOSED,
-            title=f"Letter closed: {letter.serial_no}",
-            body=f"The issue for «{letter.subject}» was formally closed.",
+        related_user_ids: list[int] = []
+        all_assignments = list(
+            self.db.scalars(
+                select(LetterAssignment).where(LetterAssignment.letter_id == letter.id)
+            ).all()
+        )
+        for a in all_assignments:
+            related_user_ids.append(a.consultant_id)
+            related_user_ids.append(a.assigned_by)
+
+        ActivityService(self.db).notify_receiving_and_related_on_close(
             letter_id=letter.id,
-            link_path=f"/letters/{letter.id}",
+            serial_no=letter.serial_no,
+            subject=letter.subject,
+            creator_user_id=letter.created_by,
+            related_user_ids=related_user_ids,
+            exclude_user_ids={user.id},
         )
 
         self.db.commit()
